@@ -1,146 +1,89 @@
-# NHITW Cloud Analyzer (更好的健保雲端 2.0)
+# NHITW 診間閱讀器
 
-這是一個 Chrome 擴充功能，用於從健保雲端資料系統擷取資料。此工具可協助醫療專業人員更有效率地處理健保雲端資料。
+本專案是 [NHITW Cloud Analyzer (更好的健保雲端 2.0)](https://github.com/leescot/NHITW_cloud_analyzer_react_MUI) 的衍生版本，新增**共享資料夾橋接功能**，讓診間醫師能查看櫃檯擷取的健保雲端病患資料。
 
-## 功能特點
+感謝原作者 [leescot](https://github.com/leescot) 及所有貢獻者開發了這個優秀的工具。
 
-- 從健保雲端資料系統中擷取患者資料
-- 實時處理並顯示資料
-- 支援資料擷取和解析
-- 使用者友善的介面設計
+## 為什麼需要這個 Fork
 
-## 系統需求
+在許多診所環境中：
+- 健保讀卡機和雲端查詢系統在**櫃檯**
+- 醫師在**診間**無法直接存取健保雲端
+- 但兩端在同一區域網路，有 Windows 共享資料夾
 
-- [Google Chrome](https://www.google.com/chrome/) 瀏覽器（其他 Chromium 核心的瀏覽器如 [Microsoft Edge](https://www.microsoft.com/edge) 亦可，但介面可能稍有不同）
-- 健保雲端資料系統存取權限 (<https://medcloud2.nhi.gov.tw/>)
+本專案讓擴充套件多了兩種運作模式，透過共享資料夾自動同步資料，醫師不必離開診間就能查看完整的病患醫療紀錄。
 
-## 安裝說明
+## 新增功能
 
-### 安裝說明影片(Youtube): [連結](https://www.youtube.com/watch?v=atu3LXBK6og)
+- **櫃檯擷取模式**：原始擴充套件功能 + 自動將病患資料匯出到共享資料夾
+- **診間閱讀模式**：從共享資料夾載入病患資料，用同一套 UI 完整顯示
+- **病患列表**：依日期瀏覽今日已查詢的病患，支援搜尋
+- **PowerShell Native Messaging Host**：橋接 Chrome 與本地檔案系統，Windows 內建零依賴
+- **一鍵安裝腳本**：`install.bat` 自動完成所有設定
 
-### 從 Chrome 線上應用程式商店安裝
+所有原始功能（西藥、中藥、檢驗、影像、過敏、手術、出院摘要等 13+ 種資料類型）完整保留。
 
-如果電腦可以連上外網，可直接至 [Chrome 線上應用程式商店](https://chromewebstore.google.com/detail/kmhlkhgagjadmoclpjomgodfbdfkifja)下載安裝本擴充功能。
+## 安裝步驟
 
-### 使用 Chrome 開發人員模式安裝
+### 1. 建置擴充套件
 
-1. 至本專案版本庫 Tags => Releases 下載[最新版的壓縮檔](https://github.com/leescot/NHITW_cloud_analyzer_react_MUI/releases/latest)
-2. 將下載的壓縮檔解壓縮為資料夾
-3. 在 Chrome 瀏覽器中，前往「管理擴充功能」頁面（或造訪網址 `chrome://extensions/`）
-4. 在右上角啟用「開發人員模式」
-5. 點擊「載入未封裝項目」按鈕
-6. 選擇步驟 2 的資料夾（`manifest.json` 等檔案所在的資料夾）
-7. 擴充功能應該已成功安裝並顯示在您的擴充功能列表中
+```bash
+git clone https://github.com/jeff830621/NHITW_clinic_reader.git
+cd NHITW_clinic_reader
+git checkout feat/clinic-reader
+npm install
+npm run build
+```
 
-### 從專案原始碼編譯安裝
+### 2. 載入擴充套件
 
-1. 複製或下載此專案的原始碼到您的電腦
-2. 開啟終端機，並進入專案目錄
-3. 執行以下命令安裝相依套件並建置專案：
+1. 開啟 Chrome → `chrome://extensions` → 開發者模式
+2. 點擊「載入未封裝項目」→ 選擇 `dist/` 資料夾
+3. 記下擴充套件 ID
 
-   ```
-   npm install --omit=dev && npm run build
-   ```
+### 3. 安裝 Native Messaging Host
 
-4. 比照上一節的步驟 3–7 在瀏覽器安裝，其中在步驟 6 選擇專案中的 `dist` 資料夾
+在**櫃檯**和**診間**電腦都要執行：
 
-## 使用方法
+1. 找到 `native-host` 資料夾
+2. 執行 `install.bat`
+3. 輸入共享資料夾路徑（兩台電腦必須一致，例如 `\\SERVER\shared\nhitw-data`）
+4. 輸入擴充套件 ID
+5. 重新啟動 Chrome
 
-1. 安裝擴充功能後，前往 [健保雲端資料系統](https://medcloud2.nhi.gov.tw/imu/)
-2. 點擊瀏覽器工具列中的擴充功能圖示開始使用
-3. 按照界面指示進行操作
+### 4. 設定角色
 
-## 設定選項與預設值
+1. 點擊擴充套件圖示 → 設定 → 滾動到「共享資料夾設定」
+2. 啟用功能並選擇角色：
+   - 櫃檯電腦 → **櫃檯模式**
+   - 診間電腦 → **診間模式**
 
-擴充功能提供多種設定選項，可以根據使用者的需求進行個人化。以下是各類設定及其預設值：
+### 5. 開始使用
 
-### 一般顯示設定
+- **櫃檯**：照常查詢健保雲端，資料自動匯出
+- **診間**：點擊設定中的「開啟診間閱讀器」，從列表選擇病患
 
-- **固定顯示總覽頁面**：開啟/關閉 開啟頁面時，固定顯示「總覽」頁面
-- **文字大小**
-  - 標題文字大小：中 (medium)
-  - 內容文字大小：中 (medium)
-  - 註釋文字大小：小 (small)
-- **浮動圖示位置**：右上 / 右中 / 右下
+## 技術架構
 
-### 西藥顯示設定
+```
+櫃檯 Chrome ──► Native Host ──► 共享資料夾 ◄── Native Host ◄── 診間 Chrome
+  (擷取模式)    (PowerShell)      (SMB)       (PowerShell)     (閱讀模式)
+```
 
-- **簡化藥品名稱**：開啟/關閉 簡化藥物名稱功能
-- **顯示學名**：開啟/關閉 關閉 顯示藥品學名 （註釋文字）
-- **顯示診斷**：開啟/關閉顯示 ICD10 診斷 （註釋文字）
-- **顯示藥理分類 (ATC5)**：開啟/關閉顯示 ATC5 藥品分類名稱 （註釋文字）
-- **複製格式**：含用法用量 直式/橫式
+- Chrome Extension Manifest V3 + React 19 + MUI 6.5
+- PowerShell Native Messaging Host（Windows 內建）
+- Windows SMB 共享資料夾同步
 
-### 藥理分類 (ATC5) 設定
+## 解除安裝
 
-- **啟用顏色標記**：開啟/關閉 ATC5 分類標記顏色
-- **分類群組** （預設值，可自行新增/刪減/更改內容）
-  - NSAID: 非類固醇消炎止痛藥
-  - ACEI: 血管張力素轉換酶抑制劑
-  - ARB: 血管張力素受體阻斷劑
-  - STATIN: 他汀類藥物
-  - SGLT2: 鈉-葡萄糖共同運輸蛋白-2 抑制劑
-  - GLP1: 胰高血糖素樣肽-1 受體激動劑
-- **顏色群組設定**
-  - 紅色標記：NSAID （預設值，可自行更改）
-  - 橙色標記：ARB, ACEI, STATIN （預設值，可自行更改）
-  - 綠色標記：（無預設值）
+執行 `native-host\uninstall.bat` 移除 Native Messaging Host。
 
-### 中藥顯示設定
+## 授權
 
-- **顯示診斷**：開啟/關閉 顯示 ICD10 診斷
-- **顯示功效名稱**：開啟/關閉 功效名稱
-- **複製格式**：含用法用量 直式/橫式
+本專案沿用原專案的 [Apache License 2.0](LICENSE) 授權。
 
-### 檢驗報告設定
+## 致謝
 
-- **顯示檢驗單位**：開啟/關閉 顯示檢驗單位 （註釋文字）
-- **顯示檢驗參考值**：開啟/關閉 顯示檢驗的參考值 （註釋文字）
-- **顯示檢驗縮寫**：開啟/關閉 顯示檢驗名稱縮寫
-- **開啟異常值變色**：開啟/關閉 顯示檢驗數值異常變色，高於參考值為紅色，低於參考值為綠色
-- **檢驗報告呈現方式**：直式/橫式/兩欄/三欄/依分類 顯示
-- **檢驗報告複製格式**：直式/橫式
-
-### 「總覽」頁面設定
-
-- **用藥追蹤天數**：100 天 （預設值，可自行更改）
-- **檢驗追蹤天數**：180 天 （預設值，可自行更改）
-- **影像追蹤天數**：180 天 （預設值，可自行更改）
-- **關注檢驗項目**：預設包含常見檢驗項目 （有固定清單，可自行選定與排序）)
-- **關注影像項目**：預設包含常見影像檢查 （有固定清單，可自行選定）
-
-## 貢獻
-
-我們歡迎各種形式的貢獻！
-
-### 如何貢獻
-
-1. Fork 本專案
-2. 創建您的功能分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交您的修改 (`git commit -m 'feat: add some AmazingFeature'`)
-4. Push 到分支 (`git push origin feature/AmazingFeature`)
-5. 發起 Pull Request
-
-## 授權協議
-
-本專案採用 Apache License 2.0 授權。詳見 [LICENSE](LICENSE) 檔案。
-
-## 貢獻者
-
-感謝所有對本專案做出貢獻的開發者！
-
-- **leescot** - 專案維護者
-- aszk1415
-- Danny Lin
-- Hsieh-Ting Lin (林協霆)
-
-## 聯絡方式
-
-如有問題或建議，歡迎透過以下方式聯繫：
-
-- 提交 [GitHub Issue](https://github.com/leescot/NHITW_cloud_analyzer_react_MUI/issues)
-- 查看 [GitHub Discussions](https://github.com/leescot/NHITW_cloud_analyzer_react_MUI/discussions)
-
----
-
-**免責聲明**：本工具僅供醫療專業人員輔助使用，所有醫療決策應基於專業判斷。
+- [NHITW Cloud Analyzer React MUI](https://github.com/leescot/NHITW_cloud_analyzer_react_MUI) — 原始專案
+- [leescot](https://github.com/leescot) — 原作者
+- 所有原始專案的[貢獻者](https://github.com/leescot/NHITW_cloud_analyzer_react_MUI/graphs/contributors)
