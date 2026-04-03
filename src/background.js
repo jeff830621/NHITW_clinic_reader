@@ -16,6 +16,35 @@ let currentSessionData = {
   currentUserSession: null
 };
 
+/**
+ * Auto-export patient data to shared folder via Native Messaging Host.
+ * Non-blocking: failures don't affect the main extension functionality.
+ */
+async function autoExportToSharedFolder() {
+  try {
+    const settings = await chrome.storage.sync.get('sharedFolder');
+    const sharedFolder = settings.sharedFolder || {};
+    if (!sharedFolder.enabled || sharedFolder.role !== 'capture') return;
+
+    const patientId = currentSessionData.currentUserSession?.patientId;
+    const patientName = currentSessionData.currentUserSession?.patientName || '';
+    if (!patientId) return;
+
+    const exportData = {};
+    for (const [key, value] of Object.entries(currentSessionData)) {
+      if (key !== 'token' && key !== 'currentUserSession' && value) {
+        exportData[key] = value;
+      }
+    }
+
+    const { writePatient } = await import('./utils/nativeHostBridge.js');
+    await writePatient(patientId, patientName, exportData);
+    console.log(`[NHITW Clinic] Exported patient ${patientId} to shared folder`);
+  } catch (err) {
+    console.warn('[NHITW Clinic] Auto-export failed (non-blocking):', err.message);
+  }
+}
+
 // 定義 API 端點和對應的數據類型
 const API_ENDPOINTS = {
   allergy: "medcloud2.nhi.gov.tw/imu/api/imue0040/imue0040s02/get-data",
@@ -180,7 +209,47 @@ const ACTION_HANDLERS = new Map([
     currentSessionData.token = message.token;
     currentSessionData.currentUserSession = message.userSession || currentSessionData.currentUserSession;
     sendResponse({ status: "token_saved" });
-  }]
+  }],
+
+  ['readManifest', async (message, sender, sendResponse) => {
+    try {
+      const { readManifest } = await import('./utils/nativeHostBridge.js');
+      const result = await readManifest(message.date);
+      sendResponse(result);
+    } catch (err) {
+      sendResponse({ success: false, error: err.message });
+    }
+  }],
+
+  ['readPatient', async (message, sender, sendResponse) => {
+    try {
+      const { readPatient } = await import('./utils/nativeHostBridge.js');
+      const result = await readPatient(message.filename, message.date);
+      sendResponse(result);
+    } catch (err) {
+      sendResponse({ success: false, error: err.message });
+    }
+  }],
+
+  ['searchPatient', async (message, sender, sendResponse) => {
+    try {
+      const { searchPatient } = await import('./utils/nativeHostBridge.js');
+      const result = await searchPatient(message.query);
+      sendResponse(result);
+    } catch (err) {
+      sendResponse({ success: false, error: err.message });
+    }
+  }],
+
+  ['checkHostStatus', async (message, sender, sendResponse) => {
+    try {
+      const { isHostAvailable } = await import('./utils/nativeHostBridge.js');
+      const available = await isHostAvailable();
+      sendResponse({ success: true, available });
+    } catch (err) {
+      sendResponse({ success: false, available: false, error: err.message });
+    }
+  }],
 ]);
 
 // 通用數據保存處理函數
@@ -211,6 +280,9 @@ function saveDataHandler(type) {
       // console.log(`${type} data saved to storage`);
       chrome.action.setBadgeText({ text: "✓" });
       chrome.action.setBadgeBackgroundColor({ color: "#4CAF50" });
+
+      // Auto-export to shared folder (non-blocking)
+      autoExportToSharedFolder();
 
       if (message.data && message.data.rObject && Array.isArray(message.data.rObject)) {
         sendResponse({
