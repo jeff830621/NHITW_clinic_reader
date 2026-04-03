@@ -10,7 +10,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         popup: resolve(__dirname, 'src/popup.jsx'),
-        reader: resolve(__dirname, 'public/reader.html')
+        reader: resolve(__dirname, 'reader.html')
       },
       output: {
         entryFileNames: 'assets/[name].js',
