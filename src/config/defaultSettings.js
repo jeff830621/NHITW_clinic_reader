@@ -119,4 +119,10 @@ export const DEFAULT_SETTINGS = {
     fetchCancerScreening: false,
     fetchHbcvdata: true,
   },
+
+  sharedFolder: {
+    enabled: false,
+    role: "capture",
+    retentionDays: 7,
+  },
 };
