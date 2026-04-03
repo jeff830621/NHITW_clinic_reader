@@ -36,7 +36,6 @@ import CloudDataSettings from './settings/CloudDataSettings';
 import { updateDataStatus } from '../utils/settingsHelper';
 import LoadDataTab from './settings/LoadDataTab';
 import SharedFolderSettings from './settings/SharedFolderSettings';
-import FolderSharedIcon from '@mui/icons-material/FolderShared';
 
 const PopupSettings = () => {
   const [dataStatus, setDataStatus] = useState({
