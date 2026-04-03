@@ -9,7 +9,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        popup: resolve(__dirname, 'src/popup.jsx')
+        popup: resolve(__dirname, 'src/popup.jsx'),
+        reader: resolve(__dirname, 'public/reader.html')
       },
       output: {
         entryFileNames: 'assets/[name].js',
