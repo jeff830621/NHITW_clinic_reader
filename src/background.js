@@ -34,10 +34,20 @@ async function autoExportToSharedFolder() {
     if (session.startsWith('patient_')) {
       patientId = session.replace('patient_', '');
     }
-    // Try to get patient name from patientSummaryData if available
-    const summaryData = currentSessionData.patientSummaryData;
-    const patientName = summaryData?.rObject?.[0]?.PATIENT_NAME ||
-                        summaryData?.rObject?.[0]?.patientName || patientId;
+
+    // Extract patient name from JWT token (has UserName and UserID)
+    let patientName = patientId;
+    try {
+      const token = currentSessionData.token;
+      if (token) {
+        const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+          atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+        );
+        const payload = JSON.parse(jsonPayload);
+        if (payload.UserName) patientName = payload.UserName;
+      }
+    } catch (e) { /* token parsing failed, use patientId as name */ }
 
     const exportData = {};
     for (const [key, value] of Object.entries(currentSessionData)) {
