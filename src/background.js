@@ -26,9 +26,18 @@ async function autoExportToSharedFolder() {
     const sharedFolder = settings.sharedFolder || {};
     if (!sharedFolder.enabled || sharedFolder.role !== 'capture') return;
 
-    const patientId = currentSessionData.currentUserSession?.patientId;
-    const patientName = currentSessionData.currentUserSession?.patientName || '';
-    if (!patientId) return;
+    // currentUserSession is a string like "patient_A123456789" or "token_xxx"
+    const session = currentSessionData.currentUserSession;
+    if (!session) return;
+
+    let patientId = session;
+    if (session.startsWith('patient_')) {
+      patientId = session.replace('patient_', '');
+    }
+    // Try to get patient name from patientSummaryData if available
+    const summaryData = currentSessionData.patientSummaryData;
+    const patientName = summaryData?.rObject?.[0]?.PATIENT_NAME ||
+                        summaryData?.rObject?.[0]?.patientName || patientId;
 
     const exportData = {};
     for (const [key, value] of Object.entries(currentSessionData)) {
