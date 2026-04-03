@@ -25,21 +25,12 @@
 
 ## 安裝步驟
 
-### 1. 建置擴充套件
+### 1. 下載並載入擴充套件
 
-```bash
-git clone https://github.com/jeff830621/NHITW_clinic_reader.git
-cd NHITW_clinic_reader
-git checkout feat/clinic-reader
-npm install
-npm run build
-```
-
-### 2. 載入擴充套件
-
-1. 開啟 Chrome → `chrome://extensions` → 開發者模式
-2. 點擊「載入未封裝項目」→ 選擇 `dist/` 資料夾
-3. 記下擴充套件 ID
+1. 前往 [Releases 頁面](https://github.com/jeff830621/NHITW_clinic_reader/releases) 下載最新版壓縮檔，或直接 [下載 ZIP](https://github.com/jeff830621/NHITW_clinic_reader/archive/refs/heads/feat/clinic-reader.zip) 解壓縮
+2. 開啟 Chrome → `chrome://extensions` → 開發者模式
+3. 點擊「載入未封裝項目」→ 選擇解壓後的 `dist/` 資料夾
+4. 記下擴充套件 ID
 
 ### 3. 安裝 Native Messaging Host
 

@@ -7,8 +7,8 @@ yarn-error.log
 .pnpm-debug.log
 .pnp.*
 
-# Build outputs
-dist/
+# Build outputs (dist/ included for direct download)
+# dist/
 build
 out
 .next
