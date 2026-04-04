@@ -162,8 +162,8 @@ const ReaderPage = () => {
     setPatientList([]);
     try {
       const response = await sendMessage("readManifest", { date: selectedDate });
-      if (response && response.success && Array.isArray(response.data)) {
-        setPatientList(response.data);
+      if (response && response.success && Array.isArray(response.patients)) {
+        setPatientList(response.patients);
       } else {
         setPatientList([]);
       }
@@ -265,8 +265,8 @@ const ReaderPage = () => {
     setSearchResults(null);
     try {
       const response = await sendMessage("searchPatient", { query: q });
-      if (response && response.success && Array.isArray(response.data)) {
-        setSearchResults(response.data);
+      if (response && response.success && Array.isArray(response.results)) {
+        setSearchResults(response.results);
       } else {
         setSearchResults([]);
       }
