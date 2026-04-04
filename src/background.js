@@ -21,8 +21,19 @@ let currentSessionData = {
 
 /**
  * Auto-export patient data to shared folder via Native Messaging Host.
- * Non-blocking: failures don't affect the main extension functionality.
+ * Debounced: waits 5 seconds after the last data save to ensure all data types
+ * and the JWT token are available before generating the HTML report.
  */
+let _exportTimer = null;
+
+function scheduleExport() {
+  if (_exportTimer) clearTimeout(_exportTimer);
+  _exportTimer = setTimeout(() => {
+    _exportTimer = null;
+    autoExportToSharedFolder();
+  }, 5000);
+}
+
 async function autoExportToSharedFolder() {
   try {
     const settings = await chrome.storage.sync.get('sharedFolder');
@@ -63,7 +74,7 @@ async function autoExportToSharedFolder() {
     const html = generateHtmlReport(patientName, patientId, exportData);
     const filename = getReportFilename(patientName);
     await writeHtml(filename, html);
-    console.log(`[NHITW Clinic] HTML report saved: ${filename}`);
+    console.log(`[NHITW Clinic] HTML report saved: ${filename} (${Object.keys(exportData).length} data types)`);
   } catch (err) {
     console.warn('[NHITW Clinic] Auto-export failed (non-blocking):', err.message);
   }
@@ -266,8 +277,8 @@ function saveDataHandler(type) {
       chrome.action.setBadgeText({ text: "✓" });
       chrome.action.setBadgeBackgroundColor({ color: "#4CAF50" });
 
-      // Auto-export to shared folder (non-blocking)
-      autoExportToSharedFolder();
+      // Schedule HTML export (debounced — waits for all data types)
+      scheduleExport();
 
       if (message.data && message.data.rObject && Array.isArray(message.data.rObject)) {
         sendResponse({
