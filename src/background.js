@@ -21,18 +21,28 @@ let currentSessionData = {
 
 /**
  * Auto-export patient data to shared folder via Native Messaging Host.
- * Debounced: waits 5 seconds after the last data save to ensure all data types
- * and the JWT token are available before generating the HTML report.
+ * Debounced: waits for all data types to arrive before generating HTML.
+ * Uses chrome.alarms instead of setTimeout because MV3 Service Workers
+ * can be killed before setTimeout fires.
  */
-let _exportTimer = null;
+let _exportPending = false;
 
 function scheduleExport() {
-  if (_exportTimer) clearTimeout(_exportTimer);
-  _exportTimer = setTimeout(() => {
-    _exportTimer = null;
-    autoExportToSharedFolder();
-  }, 5000);
+  if (!_exportPending) {
+    _exportPending = true;
+    // Use chrome.alarms for MV3 Service Worker reliability (min 1 second with delayInMinutes hack)
+    // Fallback: just use setTimeout but also set an alarm as backup
+    chrome.alarms.create('htmlExport', { delayInMinutes: 0.1 }); // ~6 seconds
+  }
 }
+
+// Listen for the alarm
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'htmlExport') {
+    _exportPending = false;
+    autoExportToSharedFolder();
+  }
+});
 
 async function autoExportToSharedFolder() {
   try {
@@ -73,8 +83,16 @@ async function autoExportToSharedFolder() {
     // Generate and write HTML report only (no JSON)
     const html = generateHtmlReport(patientName, patientId, exportData);
     const filename = getReportFilename(patientName);
+    const sizeKB = Math.round(new Blob([html]).size / 1024);
+    console.log(`[NHITW Clinic] Generating HTML: ${filename} (${sizeKB}KB, ${Object.keys(exportData).length} data types)`);
+
+    if (sizeKB > 900) {
+      console.warn(`[NHITW Clinic] HTML too large (${sizeKB}KB), exceeds Native Messaging limit`);
+      return;
+    }
+
     await writeHtml(filename, html);
-    console.log(`[NHITW Clinic] HTML report saved: ${filename} (${Object.keys(exportData).length} data types)`);
+    console.log(`[NHITW Clinic] HTML report saved: ${filename}`);
   } catch (err) {
     console.warn('[NHITW Clinic] Auto-export failed (non-blocking):', err.message);
   }
@@ -240,9 +258,10 @@ const ACTION_HANDLERS = new Map([
   ['savePatientSummaryData', saveDataHandler('patientSummary')],
   
   ['saveToken', (message, sender, sendResponse) => {
-    // console.log("Background script received token to save");
     currentSessionData.token = message.token;
     currentSessionData.currentUserSession = message.userSession || currentSessionData.currentUserSession;
+    // Token contains patient name — also trigger export schedule
+    scheduleExport();
     sendResponse({ status: "token_saved" });
   }],
 
