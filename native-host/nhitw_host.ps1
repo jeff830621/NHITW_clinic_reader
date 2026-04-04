@@ -115,9 +115,20 @@ function Action-ReadManifest($msg) {
             return
         }
         $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
-        # Force patients to array (PowerShell unwraps single-element arrays)
-        $patients = @($manifest.patients)
-        Write-Message @{ success = $true; date = $manifest.date; patients = $patients }
+        # Rebuild each patient as a fresh hashtable to avoid PSCustomObject serialization issues
+        $patientArray = @()
+        foreach ($p in @($manifest.patients)) {
+            if ($p) {
+                $patientArray += @{
+                    id = if ($p.id) { $p.id.ToString() } else { "" }
+                    name = if ($p.name) { $p.name.ToString() } else { "" }
+                    timestamp = $p.timestamp
+                    filename = if ($p.filename) { $p.filename.ToString() } else { "" }
+                }
+            }
+        }
+        $dateStr = if ($manifest.date) { $manifest.date.ToString() } else { $date }
+        Write-Message @{ success = $true; date = $dateStr; patients = $patientArray }
     } catch {
         Send-Error "READ_MANIFEST_FAILED" $_.Exception.Message
     }
@@ -131,8 +142,9 @@ function Action-ReadPatient($msg) {
             Send-Error "FILE_NOT_FOUND" "Patient file not found: $($msg.filename)"
             return
         }
-        $data = Get-Content $filepath -Raw | ConvertFrom-Json
-        Write-Message @{ success = $true; data = $data }
+        # Send raw JSON string to avoid PSCustomObject serialization depth issues
+        $rawJson = Get-Content $filepath -Raw
+        Write-Message @{ success = $true; rawData = $rawJson }
     } catch {
         Send-Error "READ_PATIENT_FAILED" $_.Exception.Message
     }
@@ -152,12 +164,14 @@ function Action-SearchPatient($msg) {
                     $_.id -like "*$($msg.query)*" -or $_.name -like "*$($msg.query)*"
                 })
                 foreach ($match in $matches) {
-                    $results += @{
-                        id = $match.id
-                        name = $match.name
-                        date = $manifest.date
-                        timestamp = $match.timestamp
-                        filename = $match.filename
+                    if ($match) {
+                        $results += @{
+                            id = if ($match.id) { $match.id.ToString() } else { "" }
+                            name = if ($match.name) { $match.name.ToString() } else { "" }
+                            date = if ($manifest.date) { $manifest.date.ToString() } else { $folder.Name }
+                            timestamp = $match.timestamp
+                            filename = if ($match.filename) { $match.filename.ToString() } else { "" }
+                        }
                     }
                 }
             }

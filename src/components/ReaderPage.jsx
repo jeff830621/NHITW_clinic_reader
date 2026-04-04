@@ -220,8 +220,10 @@ const ReaderPage = () => {
         date: selectedDate,
       });
 
-      if (response && response.success && response.data) {
-        const data = response.data;
+      console.log("[Reader] readPatient response keys:", response ? Object.keys(response) : "null");
+      // rawData is a JSON string to avoid PowerShell serialization depth issues
+      const data = response?.rawData ? JSON.parse(response.rawData) : response?.data;
+      if (response && response.success && data) {
 
         // Set window variables for collectDataSources
         window.lastInterceptedMedicationData = data.medicationData || null;
