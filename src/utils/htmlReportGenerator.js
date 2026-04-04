@@ -160,7 +160,7 @@ function buildDiagnosisSection(data) {
 
   const diagList = Object.values(diagMap);
   if (diagList.length === 0) {
-    return `<div class="section">
+    return `<div class="section full-width">
       <h2 onclick="toggleSection(this)">▸ 過往診斷</h2>
       <div class="section-body"><p>無診斷紀錄</p></div></div>`;
   }
@@ -179,7 +179,7 @@ function buildDiagnosisSection(data) {
     rows += `<tr><td><strong>${esc(d.code)}</strong></td><td>${esc(d.name)}</td><td>${esc(dates)}</td><td>${esc(hosps)}</td></tr>`;
   }
 
-  return `<div class="section">
+  return `<div class="section full-width">
     <h2 onclick="toggleSection(this)">▸ 過往診斷 (${diagList.length})</h2>
     <div class="section-body">
       <table><thead><tr><th>診斷碼</th><th>診斷名稱</th><th>就診日期</th><th>醫療院所</th></tr></thead>
@@ -197,7 +197,7 @@ function buildLabSection(items) {
   });
 
   if (labItems.length === 0) {
-    return `<div class="section">
+    return `<div class="section full-width">
       <h2 onclick="toggleSection(this)">▸ 檢驗報告</h2>
       <div class="section-body"><p>無檢驗結果</p></div></div>`;
   }
@@ -222,7 +222,7 @@ function buildLabSection(items) {
     }
   }
 
-  return `<div class="section">
+  return `<div class="section full-width">
     <h2 onclick="toggleSection(this)">▸ 檢驗報告 (${labItems.length})</h2>
     <div class="section-body">
       <table><thead><tr><th>檢驗項目</th><th>結果</th><th>參考值</th><th>單位</th></tr></thead>
@@ -253,7 +253,7 @@ function buildMedicationSection(items) {
     }
   }
 
-  return `<div class="section">
+  return `<div class="section full-width">
     <h2 onclick="toggleSection(this)">▸ 西藥用藥紀錄 (${items.length})</h2>
     <div class="section-body">
       <table><thead><tr><th>藥品名稱</th><th>劑量</th><th>頻率</th><th>天數</th></tr></thead>
@@ -281,7 +281,7 @@ function buildChineseMedSection(items) {
     }
   }
 
-  return `<div class="section">
+  return `<div class="section full-width">
     <h2 onclick="toggleSection(this)">▸ 中藥用藥紀錄 (${items.length})</h2>
     <div class="section-body">
       <table><thead><tr><th>藥品名稱</th><th>劑量</th><th>頻率</th><th>天數</th></tr></thead>
@@ -414,29 +414,33 @@ function buildFullHtml(name, id, dateStr, sectionsHtml) {
 <title>${esc(name)} — 醫療資料報告</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; background: #f5f5f5; color: #333; padding: 20px; }
-  .header { background: #1976d2; color: white; padding: 20px 24px; border-radius: 8px; margin-bottom: 20px; }
-  .header h1 { font-size: 24px; margin-bottom: 4px; }
-  .header .meta { font-size: 14px; opacity: 0.9; }
-  .section { background: white; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
-  .section h2 { font-size: 16px; padding: 12px 16px; cursor: pointer; user-select: none; background: #fafafa; border-bottom: 1px solid #eee; }
+  body { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; background: #f5f5f5; color: #333; padding: 16px; }
+  .header { background: #1976d2; color: white; padding: 16px 20px; border-radius: 8px; margin-bottom: 12px; }
+  .header h1 { font-size: 22px; margin-bottom: 2px; }
+  .header .meta { font-size: 13px; opacity: 0.9; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .section { background: white; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+  .section.full-width { grid-column: 1 / -1; }
+  .section h2 { font-size: 14px; padding: 8px 12px; cursor: pointer; user-select: none; background: #fafafa; border-bottom: 1px solid #eee; margin: 0; }
   .section h2:hover { background: #f0f0f0; }
   .section-body { padding: 0; }
   .section-body.collapsed { display: none; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { background: #f8f9fa; text-align: left; padding: 8px 12px; border-bottom: 2px solid #dee2e6; font-weight: 600; white-space: nowrap; }
-  td { padding: 6px 12px; border-bottom: 1px solid #eee; vertical-align: top; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { background: #f8f9fa; text-align: left; padding: 5px 8px; border-bottom: 2px solid #dee2e6; font-weight: 600; white-space: nowrap; }
+  td { padding: 4px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
   tr:hover { background: #f8f9ff; }
-  tr.group-header td { background: #e3f2fd; font-weight: 600; font-size: 13px; color: #1565c0; padding: 8px 12px; }
+  tr.group-header td { background: #e3f2fd; font-weight: 600; font-size: 12px; color: #1565c0; padding: 6px 8px; }
   .abnormal { color: #d32f2f; font-weight: bold; }
-  .sub { color: #888; font-size: 11px; }
-  .nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-  .nav a { background: #1976d2; color: white; padding: 6px 14px; border-radius: 4px; text-decoration: none; font-size: 13px; cursor: pointer; }
+  .sub { color: #888; font-size: 10px; }
+  .nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .nav a { background: #1976d2; color: white; padding: 4px 12px; border-radius: 4px; text-decoration: none; font-size: 12px; cursor: pointer; }
   .nav a:hover { background: #1565c0; }
-  p { padding: 12px 16px; color: #666; }
+  p { padding: 8px 12px; color: #666; font-size: 12px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
   @media print {
     body { padding: 0; background: white; }
     .header { border-radius: 0; }
+    .grid { grid-template-columns: 1fr 1fr; gap: 8px; }
     .section { box-shadow: none; break-inside: avoid; }
     .section-body.collapsed { display: block !important; }
     .nav { display: none; }
@@ -453,7 +457,9 @@ function buildFullHtml(name, id, dateStr, sectionsHtml) {
   <a onclick="collapseAll()">全部收合</a>
   <a onclick="window.print()">列印</a>
 </div>
+<div class="grid">
 ${sectionsHtml}
+</div>
 <script>
 function toggleSection(h2) {
   var body = h2.nextElementSibling;

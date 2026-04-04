@@ -1,30 +1,30 @@
 (()=>{var E="com.nhitw.host";function k(e){return new Promise((o,t)=>{try{let a=chrome.runtime.connectNative(E),r=!1;a.onMessage.addListener(n=>{r=!0,a.disconnect(),n.success?o(n):t(new Error(n.message||n.error||"Unknown host error"))}),a.onDisconnect.addListener(()=>{if(!r){let n=chrome.runtime.lastError?.message||"Native host disconnected";t(new Error(n))}}),a.postMessage(e)}catch(a){t(new Error(`Native messaging unavailable: ${a.message}`))}})}async function $(e,o,t){return k({action:"write_html",filename:e,content:o,date:t||void 0})}function S(e,o,t){let r=j(new Date),n=[];return n.push(M(t)),t.labData?.rObject?.length&&n.push(A(t.labData.rObject)),t.medicationData?.rObject?.length&&n.push(T(t.medicationData.rObject)),t.chinesemedData?.rObject?.length&&n.push(N(t.chinesemedData.rObject)),t.imagingData?.rObject?.length&&n.push(I(t.imagingData.rObject)),t.allergyData?.rObject?.length&&n.push(H(t.allergyData.rObject)),t.surgeryData?.rObject?.length&&n.push(U(t.surgeryData.rObject)),t.dischargeData?.rObject?.length&&n.push(P(t.dischargeData.rObject)),t.medDaysData?.rObject?.length&&n.push(F(t.medDaysData.rObject)),L(e,o,r,n.join(`
-`))}function x(e,o){let t=o||new Date,a=t.getFullYear(),r=String(t.getMonth()+1).padStart(2,"0"),n=String(t.getDate()).padStart(2,"0"),d=String(t.getHours()).padStart(2,"0"),c=String(t.getMinutes()).padStart(2,"0");return`${e.replace(/[\\/:*?"<>|]/g,"_")}_${a}${r}${n}_${d}${c}.html`}function j(e){return`${e.getFullYear()}/${String(e.getMonth()+1).padStart(2,"0")}/${String(e.getDate()).padStart(2,"0")} ${String(e.getHours()).padStart(2,"0")}:${String(e.getMinutes()).padStart(2,"0")}`}function s(e){return e?String(e).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"):""}function m(e){return e?e.includes("T")?e.split("T")[0]:e.replace(/\//g,"-"):""}function p(e){return e?e.split(";")[0].trim():""}function D(e,o){let t={};for(let a of e){let r=o(a);t[r]||(t[r]=[]),t[r].push(a)}return t}function C(e,o){if(!e||!o||e==="***")return!1;let t=parseFloat(e);if(isNaN(t))return!1;let a=o.match(/([\d.]+)\s*[-~]\s*([\d.]+)/);if(a){let d=parseFloat(a[1]),c=parseFloat(a[2]);return t<d||t>c}let r=o.match(/[<≦]\s*([\d.]+)/);if(r)return t>parseFloat(r[1]);let n=o.match(/[>≧]\s*([\d.]+)/);return n?t<parseFloat(n[1]):!1}function M(e){let o={};function t(n,d,c,l){if(!n)return;let i=n.trim();o[i]||(o[i]={code:i,name:d||"",dates:new Set,hospitals:new Set}),d&&!o[i].name&&(o[i].name=d),c&&o[i].dates.add(m(c)),l&&o[i].hospitals.add(p(l))}if(e.medicationData?.rObject)for(let n of e.medicationData.rObject)t(n.ICD_CODE||n.icd_code,n.ICD_NAME||n.icd_cname,n.PER_DATE||n.drug_date,n.HOSP_NAME||n.hosp);if(e.chinesemedData?.rObject)for(let n of e.chinesemedData.rObject)t(n.icd_code,n.icd_cname,n.func_date,n.hosp);if(e.labData?.rObject)for(let n of e.labData.rObject)t(n.icd_code,n.icd_cname,n.real_inspect_date||n.recipe_date,n.hosp);if(e.imagingData?.rObject)for(let n of e.imagingData.rObject)t(n.icd_code,n.icd_cname,n.real_inspect_date||n.case_time||n.recipe_date,n.hosp);let a=Object.values(o);if(a.length===0)return`<div class="section">
+`))}function x(e,o){let t=o||new Date,a=t.getFullYear(),r=String(t.getMonth()+1).padStart(2,"0"),n=String(t.getDate()).padStart(2,"0"),d=String(t.getHours()).padStart(2,"0"),c=String(t.getMinutes()).padStart(2,"0");return`${e.replace(/[\\/:*?"<>|]/g,"_")}_${a}${r}${n}_${d}${c}.html`}function j(e){return`${e.getFullYear()}/${String(e.getMonth()+1).padStart(2,"0")}/${String(e.getDate()).padStart(2,"0")} ${String(e.getHours()).padStart(2,"0")}:${String(e.getMinutes()).padStart(2,"0")}`}function s(e){return e?String(e).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"):""}function m(e){return e?e.includes("T")?e.split("T")[0]:e.replace(/\//g,"-"):""}function p(e){return e?e.split(";")[0].trim():""}function D(e,o){let t={};for(let a of e){let r=o(a);t[r]||(t[r]=[]),t[r].push(a)}return t}function C(e,o){if(!e||!o||e==="***")return!1;let t=parseFloat(e);if(isNaN(t))return!1;let a=o.match(/([\d.]+)\s*[-~]\s*([\d.]+)/);if(a){let d=parseFloat(a[1]),c=parseFloat(a[2]);return t<d||t>c}let r=o.match(/[<≦]\s*([\d.]+)/);if(r)return t>parseFloat(r[1]);let n=o.match(/[>≧]\s*([\d.]+)/);return n?t<parseFloat(n[1]):!1}function M(e){let o={};function t(n,d,c,l){if(!n)return;let i=n.trim();o[i]||(o[i]={code:i,name:d||"",dates:new Set,hospitals:new Set}),d&&!o[i].name&&(o[i].name=d),c&&o[i].dates.add(m(c)),l&&o[i].hospitals.add(p(l))}if(e.medicationData?.rObject)for(let n of e.medicationData.rObject)t(n.ICD_CODE||n.icd_code,n.ICD_NAME||n.icd_cname,n.PER_DATE||n.drug_date,n.HOSP_NAME||n.hosp);if(e.chinesemedData?.rObject)for(let n of e.chinesemedData.rObject)t(n.icd_code,n.icd_cname,n.func_date,n.hosp);if(e.labData?.rObject)for(let n of e.labData.rObject)t(n.icd_code,n.icd_cname,n.real_inspect_date||n.recipe_date,n.hosp);if(e.imagingData?.rObject)for(let n of e.imagingData.rObject)t(n.icd_code,n.icd_cname,n.real_inspect_date||n.case_time||n.recipe_date,n.hosp);let a=Object.values(o);if(a.length===0)return`<div class="section full-width">
       <h2 onclick="toggleSection(this)">\u25B8 \u904E\u5F80\u8A3A\u65B7</h2>
-      <div class="section-body"><p>\u7121\u8A3A\u65B7\u7D00\u9304</p></div></div>`;a.sort((n,d)=>{let c=[...n.dates].sort().pop()||"";return([...d.dates].sort().pop()||"").localeCompare(c)});let r="";for(let n of a){let d=[...n.dates].sort().reverse().join(", "),c=[...n.hospitals].join(", ");r+=`<tr><td><strong>${s(n.code)}</strong></td><td>${s(n.name)}</td><td>${s(d)}</td><td>${s(c)}</td></tr>`}return`<div class="section">
+      <div class="section-body"><p>\u7121\u8A3A\u65B7\u7D00\u9304</p></div></div>`;a.sort((n,d)=>{let c=[...n.dates].sort().pop()||"";return([...d.dates].sort().pop()||"").localeCompare(c)});let r="";for(let n of a){let d=[...n.dates].sort().reverse().join(", "),c=[...n.hospitals].join(", ");r+=`<tr><td><strong>${s(n.code)}</strong></td><td>${s(n.name)}</td><td>${s(d)}</td><td>${s(c)}</td></tr>`}return`<div class="section full-width">
     <h2 onclick="toggleSection(this)">\u25B8 \u904E\u5F80\u8A3A\u65B7 (${a.length})</h2>
     <div class="section-body">
       <table><thead><tr><th>\u8A3A\u65B7\u78BC</th><th>\u8A3A\u65B7\u540D\u7A31</th><th>\u5C31\u8A3A\u65E5\u671F</th><th>\u91AB\u7642\u9662\u6240</th></tr></thead>
       <tbody>${r}</tbody></table>
-    </div></div>`}function A(e){let o=e.filter(r=>{let n=r.assay_value;return n&&n.trim()!==""&&n.trim()!=="***"});if(o.length===0)return`<div class="section">
+    </div></div>`}function A(e){let o=e.filter(r=>{let n=r.assay_value;return n&&n.trim()!==""&&n.trim()!=="***"});if(o.length===0)return`<div class="section full-width">
       <h2 onclick="toggleSection(this)">\u25B8 \u6AA2\u9A57\u5831\u544A</h2>
       <div class="section-body"><p>\u7121\u6AA2\u9A57\u7D50\u679C</p></div></div>`;let t=D(o,r=>`${r.real_inspect_date||r.recipe_date||""}|${p(r.hosp)}`),a="";for(let[r,n]of Object.entries(t)){let[d,c]=r.split("|");a+=`<tr class="group-header"><td colspan="4">${s(m(d))} \u2014 ${s(c)}</td></tr>`;for(let l of n){let i=l.assay_item_name||l.order_name||"",h=l.assay_value||"",g=l.consult_value||"",b=l.unit_data||"",y=C(h,g);a+=`<tr>
         <td>${s(i)}</td>
         <td class="${y?"abnormal":""}">${s(h)}</td>
         <td>${s(g)}</td>
-        <td>${s(b)}</td></tr>`}}return`<div class="section">
+        <td>${s(b)}</td></tr>`}}return`<div class="section full-width">
     <h2 onclick="toggleSection(this)">\u25B8 \u6AA2\u9A57\u5831\u544A (${o.length})</h2>
     <div class="section-body">
       <table><thead><tr><th>\u6AA2\u9A57\u9805\u76EE</th><th>\u7D50\u679C</th><th>\u53C3\u8003\u503C</th><th>\u55AE\u4F4D</th></tr></thead>
       <tbody>${a}</tbody></table>
     </div></div>`}function T(e){let o=D(e,a=>`${a.PER_DATE||a.drug_date||""}|${p(a.HOSP_NAME||a.hosp)}`),t="";for(let[a,r]of Object.entries(o)){let[n,d]=a.split("|"),c=r[0]?.ICD_CODE||r[0]?.icd_code||"",l=r[0]?.ICD_NAME||r[0]?.icd_cname||"";t+=`<tr class="group-header"><td colspan="5">${s(m(n))} \u2014 ${s(d)} ${c?`(${s(c)} ${s(l)})`:""}</td></tr>`;for(let i of r){let h=i.MED_DESC||i.MED_ITEM||i.drug_ename||"",g=i.GENERIC_NAME||i.drug_ing_name||"",b=i.DOSAGE||i.qty||"",y=i.FREQ_DESC||i.drug_fre||"",O=i.MED_DAYS||i.day||"";t+=`<tr>
         <td>${s(h)}${g?`<br><span class="sub">${s(g)}</span>`:""}</td>
-        <td>${s(b)}</td><td>${s(y)}</td><td>${s(O)}</td></tr>`}}return`<div class="section">
+        <td>${s(b)}</td><td>${s(y)}</td><td>${s(O)}</td></tr>`}}return`<div class="section full-width">
     <h2 onclick="toggleSection(this)">\u25B8 \u897F\u85E5\u7528\u85E5\u7D00\u9304 (${e.length})</h2>
     <div class="section-body">
       <table><thead><tr><th>\u85E5\u54C1\u540D\u7A31</th><th>\u5291\u91CF</th><th>\u983B\u7387</th><th>\u5929\u6578</th></tr></thead>
       <tbody>${t}</tbody></table>
-    </div></div>`}function N(e){let o=D(e,a=>`${a.func_date||""}|${p(a.hosp)}`),t="";for(let[a,r]of Object.entries(o)){let[n,d]=a.split("|"),c=r[0]?.icd_code||"",l=r[0]?.icd_cname||"";t+=`<tr class="group-header"><td colspan="4">${s(m(n))} \u2014 ${s(d)} ${c?`(${s(c)} ${s(l)})`:""}</td></tr>`;for(let i of r){let h=i.drug_perscrn_name||i.cdrug_name||"",g=i.order_qty||"",b=i.drug_fre||"",y=i.day||"";t+=`<tr><td>${s(h)}</td><td>${s(g)}</td><td>${s(b)}</td><td>${s(y)}</td></tr>`}}return`<div class="section">
+    </div></div>`}function N(e){let o=D(e,a=>`${a.func_date||""}|${p(a.hosp)}`),t="";for(let[a,r]of Object.entries(o)){let[n,d]=a.split("|"),c=r[0]?.icd_code||"",l=r[0]?.icd_cname||"";t+=`<tr class="group-header"><td colspan="4">${s(m(n))} \u2014 ${s(d)} ${c?`(${s(c)} ${s(l)})`:""}</td></tr>`;for(let i of r){let h=i.drug_perscrn_name||i.cdrug_name||"",g=i.order_qty||"",b=i.drug_fre||"",y=i.day||"";t+=`<tr><td>${s(h)}</td><td>${s(g)}</td><td>${s(b)}</td><td>${s(y)}</td></tr>`}}return`<div class="section full-width">
     <h2 onclick="toggleSection(this)">\u25B8 \u4E2D\u85E5\u7528\u85E5\u7D00\u9304 (${e.length})</h2>
     <div class="section-body">
       <table><thead><tr><th>\u85E5\u54C1\u540D\u7A31</th><th>\u5291\u91CF</th><th>\u983B\u7387</th><th>\u5929\u6578</th></tr></thead>
@@ -64,29 +64,33 @@
 <title>${s(e)} \u2014 \u91AB\u7642\u8CC7\u6599\u5831\u544A</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; background: #f5f5f5; color: #333; padding: 20px; }
-  .header { background: #1976d2; color: white; padding: 20px 24px; border-radius: 8px; margin-bottom: 20px; }
-  .header h1 { font-size: 24px; margin-bottom: 4px; }
-  .header .meta { font-size: 14px; opacity: 0.9; }
-  .section { background: white; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
-  .section h2 { font-size: 16px; padding: 12px 16px; cursor: pointer; user-select: none; background: #fafafa; border-bottom: 1px solid #eee; }
+  body { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; background: #f5f5f5; color: #333; padding: 16px; }
+  .header { background: #1976d2; color: white; padding: 16px 20px; border-radius: 8px; margin-bottom: 12px; }
+  .header h1 { font-size: 22px; margin-bottom: 2px; }
+  .header .meta { font-size: 13px; opacity: 0.9; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .section { background: white; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+  .section.full-width { grid-column: 1 / -1; }
+  .section h2 { font-size: 14px; padding: 8px 12px; cursor: pointer; user-select: none; background: #fafafa; border-bottom: 1px solid #eee; margin: 0; }
   .section h2:hover { background: #f0f0f0; }
   .section-body { padding: 0; }
   .section-body.collapsed { display: none; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { background: #f8f9fa; text-align: left; padding: 8px 12px; border-bottom: 2px solid #dee2e6; font-weight: 600; white-space: nowrap; }
-  td { padding: 6px 12px; border-bottom: 1px solid #eee; vertical-align: top; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { background: #f8f9fa; text-align: left; padding: 5px 8px; border-bottom: 2px solid #dee2e6; font-weight: 600; white-space: nowrap; }
+  td { padding: 4px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
   tr:hover { background: #f8f9ff; }
-  tr.group-header td { background: #e3f2fd; font-weight: 600; font-size: 13px; color: #1565c0; padding: 8px 12px; }
+  tr.group-header td { background: #e3f2fd; font-weight: 600; font-size: 12px; color: #1565c0; padding: 6px 8px; }
   .abnormal { color: #d32f2f; font-weight: bold; }
-  .sub { color: #888; font-size: 11px; }
-  .nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-  .nav a { background: #1976d2; color: white; padding: 6px 14px; border-radius: 4px; text-decoration: none; font-size: 13px; cursor: pointer; }
+  .sub { color: #888; font-size: 10px; }
+  .nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .nav a { background: #1976d2; color: white; padding: 4px 12px; border-radius: 4px; text-decoration: none; font-size: 12px; cursor: pointer; }
   .nav a:hover { background: #1565c0; }
-  p { padding: 12px 16px; color: #666; }
+  p { padding: 8px 12px; color: #666; font-size: 12px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
   @media print {
     body { padding: 0; background: white; }
     .header { border-radius: 0; }
+    .grid { grid-template-columns: 1fr 1fr; gap: 8px; }
     .section { box-shadow: none; break-inside: avoid; }
     .section-body.collapsed { display: block !important; }
     .nav { display: none; }
@@ -103,7 +107,9 @@
   <a onclick="collapseAll()">\u5168\u90E8\u6536\u5408</a>
   <a onclick="window.print()">\u5217\u5370</a>
 </div>
+<div class="grid">
 ${a}
+</div>
 <script>
 function toggleSection(h2) {
   var body = h2.nextElementSibling;
