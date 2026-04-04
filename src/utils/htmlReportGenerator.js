@@ -49,83 +49,210 @@ function shortDate(r) {
 }
 function parseHosp(r) { return r ? r.split(';')[0].trim() : ''; }
 
-// --- Diagnosis Panel ---
+// --- Diagnosis Panel (180-day, grouped by visit type, sorted by frequency) ---
 function buildDiagnosisPanel(data) {
-  const diagMap = {};
-  function addDiag(code, name) {
-    if (!code) return;
-    const k = code.trim();
-    if (!diagMap[k]) diagMap[k] = { code: k, name: name || '' };
-    if (name && !diagMap[k].name) diagMap[k].name = name;
-  }
-  if (data.medicationData?.rObject) {
-    for (const m of data.medicationData.rObject) addDiag(m.ICD_CODE || m.icd_code, m.ICD_NAME || m.icd_cname);
-  }
-  if (data.chinesemedData?.rObject) {
-    for (const m of data.chinesemedData.rObject) addDiag(m.icd_code, m.icd_cname);
-  }
-  if (data.labData?.rObject) {
-    for (const l of data.labData.rObject) addDiag(l.icd_code, l.icd_cname);
-  }
-  if (data.imagingData?.rObject) {
-    for (const i of data.imagingData.rObject) addDiag(i.icd_code, i.icd_cname);
+  const DIAG_TRACKING_DAYS = 180;
+  // Collect from western + chinese meds (they have visit type info via hosp field)
+  const outpatient = {}; // code -> { code, name, count }
+  const emergency = [];
+  const inpatient = {};  // code -> first record
+  const vaccine = [];
+
+  function processItems(items, dateField, hospField, icdCodeField, icdNameField, atcField) {
+    if (!items) return;
+    for (const m of items) {
+      const date = m[dateField] || '';
+      if (!isWithinDays(date, DIAG_TRACKING_DAYS)) continue;
+      const code = m[icdCodeField] || '';
+      const name = m[icdNameField] || '';
+      if (!code || !name) continue;
+      const hospRaw = m[hospField] || '';
+      const hospParts = hospRaw.split(';');
+      const hosp = hospParts[0]?.trim() || '';
+      const visitType = hospParts[1]?.trim() || '門診';
+
+      // Check for vaccine: ICD Z23-Z27 + ATC J07
+      const atcCode = atcField ? (m[atcField] || '') : '';
+      if (/^Z2[3-7]/.test(code) && atcCode.startsWith('J07')) {
+        vaccine.push({ code, name, date: parseDate(date), hosp });
+        continue;
+      }
+
+      if (visitType.includes('急診')) {
+        emergency.push({ code, name, date: parseDate(date), hosp });
+      } else if (visitType.includes('住診') || visitType.includes('住院')) {
+        if (!inpatient[code]) inpatient[code] = { code, name, date: parseDate(date), hosp };
+      } else {
+        // 門診
+        if (!outpatient[code]) outpatient[code] = { code, name, count: 0 };
+        outpatient[code].count++;
+      }
+    }
   }
 
-  const diags = Object.values(diagMap);
-  if (diags.length === 0) return '<p class="empty">無診斷紀錄</p>';
+  processItems(data.medicationData?.rObject, 'PER_DATE', 'HOSP_NAME', 'ICD_CODE', 'ICD_NAME', 'ATC_CODE');
+  // Fallback field names
+  const allMeds = data.medicationData?.rObject || [];
+  if (allMeds.length > 0 && !allMeds[0].PER_DATE) {
+    processItems(allMeds, 'drug_date', 'hosp', 'icd_code', 'icd_cname', 'drug_atc7_code');
+  }
+  processItems(data.chinesemedData?.rObject, 'func_date', 'hosp', 'icd_code', 'icd_cname', null);
 
+  // Build HTML
   let html = '';
-  for (const d of diags) {
-    html += `<div class="diag-item"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)}</div>`;
+
+  // Outpatient (sorted by frequency desc)
+  const opList = Object.values(outpatient).sort((a, b) => b.count - a.count);
+  if (opList.length > 0) {
+    for (const d of opList.slice(0, 8)) {
+      html += `<div class="diag-item"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)} <span class="diag-count">${d.count}</span></div>`;
+    }
+    if (opList.length > 8) html += `<div class="diag-more">還有 ${opList.length - 8} 筆</div>`;
   }
+
+  // Emergency
+  if (emergency.length > 0) {
+    html += '<div class="visit-type-label emergency-label">急診</div>';
+    for (const d of emergency.slice(0, 5)) {
+      html += `<div class="diag-item"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)} <span class="diag-meta">${esc(d.date)}</span></div>`;
+    }
+  }
+
+  // Inpatient
+  const ipList = Object.values(inpatient);
+  if (ipList.length > 0) {
+    html += '<div class="visit-type-label inpatient-label">住診</div>';
+    for (const d of ipList.slice(0, 5)) {
+      html += `<div class="diag-item"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)}</div>`;
+    }
+  }
+
+  // Vaccine
+  if (vaccine.length > 0) {
+    html += '<div class="visit-type-label vaccine-label">疫苗</div>';
+    for (const d of vaccine.slice(0, 5)) {
+      html += `<div class="diag-item"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)} <span class="diag-meta">${esc(d.date)}</span></div>`;
+    }
+  }
+
+  if (!html) return '<p class="empty">無診斷紀錄</p>';
   return html;
 }
 
-// --- Lab Pivot Table (dates as columns, items as rows) ---
+// --- Focused Lab Tests (matches extension's labTests.js DEFAULT_LAB_TESTS) ---
+const FOCUSED_LAB_TESTS = [
+  { orderCode: '08011C', name: 'Hb', enabled: true, subItem: 'Hb' },
+  { orderCode: '09002C', name: 'BUN', enabled: true },
+  { orderCode: '09015C', name: 'Cr', enabled: true, subItem: 'Cr' },
+  { orderCode: '09015C', name: 'GFR', enabled: true, subItem: 'GFR' },
+  { orderCode: '09040C', name: 'UPCR', enabled: true },
+  { orderCode: '12111C', name: 'UACR', enabled: true },
+  { orderCode: '09038C', name: 'Alb', enabled: true },
+  { orderCode: '09005C', name: 'Glucose', enabled: true },
+  { orderCode: '09006C', name: 'HbA1c', enabled: true },
+  { orderCode: '09001C', name: 'Chol', enabled: true },
+  { orderCode: '09004C', name: 'TG', enabled: true },
+  { orderCode: '09043C', name: 'HDL', enabled: true },
+  { orderCode: '09044C', name: 'LDL', enabled: true },
+  { orderCode: '09021C', name: 'Na', enabled: true },
+  { orderCode: '09022C', name: 'K', enabled: true },
+  { orderCode: '09013C', name: 'U.A', enabled: true },
+  { orderCode: '09025C', name: 'GOT', enabled: true },
+  { orderCode: '09026C', name: 'GPT', enabled: true },
+];
+
+// --- Lab Pivot Table (90-day, focused tests only, dates as columns) ---
 function buildLabPivotPanel(items) {
   if (!items || items.length === 0) return '<p class="empty">無檢驗資料</p>';
+  const LAB_TRACKING_DAYS = 180;
 
-  // Filter to items with actual results
+  // Build set of enabled order codes
+  const enabledCodes = new Set(FOCUSED_LAB_TESTS.filter(t => t.enabled).map(t => t.orderCode));
+
+  // Filter: within tracking days, has result, matches focused codes
   const labItems = items.filter(l => {
     const v = l.assay_value;
-    return v && v.trim() !== '' && v.trim() !== '***';
+    if (!v || v.trim() === '' || v.trim() === '***') return false;
+    const date = l.real_inspect_date || l.recipe_date || '';
+    if (!isWithinDays(date, LAB_TRACKING_DAYS)) return false;
+    const code = l.order_code || '';
+    return enabledCodes.has(code);
   });
-  if (labItems.length === 0) return '<p class="empty">無檢驗結果</p>';
 
-  // Collect all dates and items
+  if (labItems.length === 0) return '<p class="empty">無關注檢驗結果</p>';
+
+  // Map each lab item to its display name from FOCUSED_LAB_TESTS
+  // Handle special cases: 08011C splits into WBC/Hb/Platelet, 09015C into Cr/GFR
   const dateSet = new Set();
-  const itemMap = {}; // itemName -> { dates: { date: { value, ref, isAbnormal } } }
+  // displayName -> { dates: { date: { value, ref, isAbnormal } } }
+  const itemMap = {};
 
   for (const l of labItems) {
     const date = parseDate(l.real_inspect_date || l.recipe_date || '');
-    const name = l.assay_item_name || l.order_name || '';
+    const code = l.order_code || '';
     const value = l.assay_value || '';
     const ref = l.consult_value || '';
-    if (!date || !name) continue;
+    const itemName = (l.assay_item_name || l.order_name || '').toLowerCase();
+    if (!date) continue;
+
+    // Determine display name based on order code and item name
+    let displayName = null;
+
+    if (code === '08011C') {
+      // CBC: determine sub-item
+      if (itemName.includes('hb') || itemName.includes('hemoglobin') || itemName.includes('血色素')) displayName = 'Hb';
+      else continue; // Skip WBC, Platelet (disabled by default)
+    } else if (code === '09015C') {
+      // Cr & GFR: determine which
+      if (itemName.includes('gfr') || itemName.includes('腎絲球')) displayName = 'GFR';
+      else displayName = 'Cr';
+    } else if (code === '09040C') {
+      if (itemName.includes('upcr') || itemName.includes('蛋白') || itemName.includes('protein')) displayName = 'UPCR';
+      else continue;
+    } else if (code === '12111C') {
+      if (itemName.includes('uacr') || itemName.includes('albumin') || itemName.includes('白蛋白')) displayName = 'UACR';
+      else continue;
+    } else {
+      // Direct match
+      const match = FOCUSED_LAB_TESTS.find(t => t.orderCode === code && t.enabled && !t.subItem);
+      if (match) displayName = match.name;
+    }
+
+    if (!displayName) continue;
 
     dateSet.add(date);
-    if (!itemMap[name]) itemMap[name] = { name, dates: {} };
-    itemMap[name].dates[date] = {
+    if (!itemMap[displayName]) itemMap[displayName] = { name: displayName, dates: {} };
+    // Keep latest value per date (in case of duplicates)
+    itemMap[displayName].dates[date] = {
       value,
       ref,
       isAbnormal: checkAbnormal(value, ref)
     };
   }
 
-  // Sort dates descending (newest first), take last 6
+  // Sort dates newest first, take up to 6
   const dates = [...dateSet].sort().reverse().slice(0, 6).reverse();
-  const itemNames = Object.keys(itemMap);
 
-  if (dates.length === 0 || itemNames.length === 0) return '<p class="empty">無檢驗結果</p>';
+  // Order rows by FOCUSED_LAB_TESTS order
+  const orderedNames = FOCUSED_LAB_TESTS.filter(t => t.enabled).map(t => t.name);
+  // Deduplicate (Cr and GFR both from 09015C)
+  const seenNames = new Set();
+  const uniqueOrderedNames = orderedNames.filter(n => {
+    if (seenNames.has(n)) return false;
+    seenNames.add(n);
+    return itemMap[n]; // only include if we have data
+  });
+
+  if (dates.length === 0 || uniqueOrderedNames.length === 0) return '<p class="empty">無關注檢驗結果</p>';
 
   // Build header
   let thead = '<tr><th class="lab-item-col">項目</th>';
   for (const d of dates) thead += `<th class="lab-date-col">${esc(shortDate(d))}</th>`;
   thead += '</tr>';
 
-  // Build rows
+  // Build rows in focused order
   let tbody = '';
-  for (const name of itemNames) {
+  for (const name of uniqueOrderedNames) {
     const item = itemMap[name];
     tbody += `<tr><td class="lab-item-name">${esc(name)}</td>`;
     for (const d of dates) {
@@ -133,13 +260,14 @@ function buildLabPivotPanel(items) {
       if (cell) {
         tbody += `<td class="${cell.isAbnormal ? 'abnormal' : ''}">${esc(cell.value)}</td>`;
       } else {
-        tbody += '<td class="no-data">—</td>';
+        tbody += '<td class="no-data">\u2014</td>';
       }
     }
     tbody += '</tr>';
   }
 
-  return `<table class="lab-pivot"><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+  return `<table class="lab-pivot"><thead>${thead}</thead><tbody>${tbody}</tbody></table>
+  <div class="tracking-note">${LAB_TRACKING_DAYS} 天內</div>`;
 }
 
 function checkAbnormal(value, reference) {
@@ -310,14 +438,56 @@ function buildChineseMedPanel(items) {
   return html;
 }
 
-// --- Imaging Panel ---
+// --- Focused Image Tests (matches extension's imageTests.js) ---
+const FOCUSED_IMAGE_CODES = new Set([
+  '33085B', '33084B',  // MRI
+  '33072B', '33070B',  // CT
+  '19009C', '19001C',  // Abdominal/Other ultrasound
+  '18006C',            // Cardiac echo
+  '28016C',            // Endoscopy
+]);
+
+// --- Imaging Panel (180-day, focused tests only) ---
 function buildImagingPanel(items) {
   if (!items || items.length === 0) return '<p class="empty">無影像資料</p>';
+  const IMAGE_TRACKING_DAYS = 180;
+
+  // Filter: within tracking days, matches focused codes
+  const filtered = items.filter(i => {
+    const date = i.real_inspect_date || i.case_time || i.recipe_date || '';
+    if (!isWithinDays(date, IMAGE_TRACKING_DAYS)) return false;
+    const code = i.order_code || '';
+    return FOCUSED_IMAGE_CODES.has(code);
+  });
+
+  if (filtered.length === 0) return `<p class="empty">${IMAGE_TRACKING_DAYS}天內無關注的影像檢查</p>`;
+
+  // Deduplicate: same date + orderName + order_code = 1 entry
+  const seen = new Set();
+  const deduped = [];
+  for (const i of filtered) {
+    const date = parseDate(i.real_inspect_date || i.case_time || i.recipe_date || '');
+    const name = i.order_name || '';
+    const code = i.order_code || '';
+    const key = `${date}|${name}|${code}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(i);
+  }
+
+  // Sort newest first
+  deduped.sort((a, b) => {
+    const da = parseDate(a.real_inspect_date || a.case_time || a.recipe_date || '');
+    const db = parseDate(b.real_inspect_date || b.case_time || b.recipe_date || '');
+    return db.localeCompare(da);
+  });
 
   let html = '';
-  for (const i of items) {
+  for (const i of deduped) {
     const date = shortDate(i.real_inspect_date || i.case_time || i.recipe_date || '');
-    const name = i.order_name || '';
+    let name = i.order_name || '';
+    // Clean name: remove brackets and semicolons
+    name = name.replace(/[[\]]/g, '').replace(/;/g, ' ').trim();
     const hosp = parseHosp(i.hosp);
     const result = i.inspect_result || '';
     html += `<div class="imaging-item">`;
@@ -326,6 +496,7 @@ function buildImagingPanel(items) {
     if (result) html += `<div class="imaging-result">${esc(result)}</div>`;
     html += `</div>`;
   }
+  html += `<div class="tracking-note">${IMAGE_TRACKING_DAYS} 天內</div>`;
   return html;
 }
 
@@ -414,9 +585,16 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .panel-body { padding:10px 14px; }
 
 /* Diagnosis */
-.diag-item { padding:4px 0; border-bottom:1px solid #f5f5f5; font-size:13px; }
+.diag-item { padding:4px 0; border-bottom:1px solid #f5f5f5; font-size:12px; display:flex; align-items:center; gap:6px; }
 .diag-item:last-child { border-bottom:none; }
-.diag-code { background:#e8f5e9; color:#2e7d32; padding:1px 6px; border-radius:3px; font-size:11px; font-weight:600; margin-right:6px; }
+.diag-code { background:#e8f5e9; color:#2e7d32; padding:1px 6px; border-radius:3px; font-size:10px; font-weight:600; flex-shrink:0; }
+.diag-count { background:#e3f2fd; color:#1565c0; padding:0 5px; border-radius:8px; font-size:10px; font-weight:600; margin-left:auto; flex-shrink:0; }
+.diag-meta { color:#999; font-size:10px; margin-left:auto; flex-shrink:0; }
+.diag-more { color:#999; font-size:11px; padding:4px 0; text-align:center; }
+.visit-type-label { font-size:11px; font-weight:600; padding:4px 8px; margin-top:8px; border-radius:3px; }
+.emergency-label { background:#ffebee; color:#c62828; }
+.inpatient-label { background:#e8f5e9; color:#2e7d32; }
+.vaccine-label { background:#e3f2fd; color:#1565c0; }
 
 /* Lab pivot table */
 .lab-pivot { width:100%; border-collapse:collapse; font-size:12px; }
