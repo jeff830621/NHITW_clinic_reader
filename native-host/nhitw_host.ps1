@@ -115,7 +115,9 @@ function Action-ReadManifest($msg) {
             return
         }
         $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
-        Write-Message @{ success = $true; date = $manifest.date; patients = $manifest.patients }
+        # Force patients to array (PowerShell unwraps single-element arrays)
+        $patients = @($manifest.patients)
+        Write-Message @{ success = $true; date = $manifest.date; patients = $patients }
     } catch {
         Send-Error "READ_MANIFEST_FAILED" $_.Exception.Message
     }
@@ -160,7 +162,7 @@ function Action-SearchPatient($msg) {
                 }
             }
         }
-        Write-Message @{ success = $true; results = $results }
+        Write-Message @{ success = $true; results = @($results) }
     } catch {
         Send-Error "SEARCH_FAILED" $_.Exception.Message
     }

@@ -141,6 +141,7 @@ const ReaderPage = () => {
     const checkHost = async () => {
       try {
         const response = await sendMessage("checkHostStatus");
+        console.log("[Reader] checkHostStatus response:", JSON.stringify(response));
         if (response && response.success) {
           setHostAvailable(true);
         } else {
@@ -162,8 +163,12 @@ const ReaderPage = () => {
     setPatientList([]);
     try {
       const response = await sendMessage("readManifest", { date: selectedDate });
-      if (response && response.success && Array.isArray(response.patients)) {
-        setPatientList(response.patients);
+      console.log("[Reader] readManifest response:", JSON.stringify(response));
+      if (response && response.success) {
+        // Handle both array and single-object (PowerShell may unwrap single-element arrays)
+        const patients = Array.isArray(response.patients) ? response.patients
+          : response.patients ? [response.patients] : [];
+        setPatientList(patients);
       } else {
         setPatientList([]);
       }
@@ -265,8 +270,11 @@ const ReaderPage = () => {
     setSearchResults(null);
     try {
       const response = await sendMessage("searchPatient", { query: q });
-      if (response && response.success && Array.isArray(response.results)) {
-        setSearchResults(response.results);
+      console.log("[Reader] searchPatient response:", JSON.stringify(response));
+      if (response && response.success) {
+        const results = Array.isArray(response.results) ? response.results
+          : response.results ? [response.results] : [];
+        setSearchResults(results);
       } else {
         setSearchResults([]);
       }
