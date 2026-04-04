@@ -61,6 +61,18 @@ export async function readPatient(filename, date) {
   });
 }
 
+/**
+ * Write an HTML report file to the shared folder.
+ */
+export async function writeHtml(filename, content, date) {
+  return sendNativeMessage({
+    action: "write_html",
+    filename: filename,
+    content: content,
+    date: date || undefined,
+  });
+}
+
 export async function searchPatient(query) {
   return sendNativeMessage({
     action: "search_patient",

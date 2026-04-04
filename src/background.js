@@ -56,9 +56,20 @@ async function autoExportToSharedFolder() {
       }
     }
 
-    const { writePatient } = await import('./utils/nativeHostBridge.js');
+    const { writePatient, writeHtml } = await import('./utils/nativeHostBridge.js');
     await writePatient(patientId, patientName, exportData);
     console.log(`[NHITW Clinic] Exported patient ${patientId} to shared folder`);
+
+    // Generate and write HTML report
+    try {
+      const { generateHtmlReport, getReportFilename } = await import('./utils/htmlReportGenerator.js');
+      const html = generateHtmlReport(patientName, patientId, exportData);
+      const filename = getReportFilename(patientName);
+      await writeHtml(filename, html);
+      console.log(`[NHITW Clinic] HTML report saved: ${filename}`);
+    } catch (htmlErr) {
+      console.warn('[NHITW Clinic] HTML report generation failed (non-blocking):', htmlErr.message);
+    }
   } catch (err) {
     console.warn('[NHITW Clinic] Auto-export failed (non-blocking):', err.message);
   }

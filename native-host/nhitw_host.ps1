@@ -182,6 +182,22 @@ function Action-SearchPatient($msg) {
     }
 }
 
+function Action-WriteHtml($msg) {
+    try {
+        $date = if ($msg.date) { $msg.date } else { Get-TodayString }
+        $folder = Ensure-DateFolder $date
+        $filename = $msg.filename
+        $filepath = Join-Path $folder $filename
+
+        # Write HTML content directly (already a complete HTML string from JS)
+        [System.IO.File]::WriteAllText($filepath, $msg.content, [System.Text.Encoding]::UTF8)
+
+        Write-Message @{ success = $true; filename = $filename; path = $filepath }
+    } catch {
+        Send-Error "WRITE_HTML_FAILED" $_.Exception.Message
+    }
+}
+
 function Action-Cleanup($msg) {
     try {
         $days = if ($msg.retentionDays) { $msg.retentionDays } else { $retentionDays }
@@ -220,6 +236,7 @@ if ($null -eq $message) { exit 0 }
 
 switch ($message.action) {
     "write_patient"  { Action-WritePatient $message }
+    "write_html"     { Action-WriteHtml $message }
     "read_manifest"  { Action-ReadManifest $message }
     "read_patient"   { Action-ReadPatient $message }
     "search_patient" { Action-SearchPatient $message }
