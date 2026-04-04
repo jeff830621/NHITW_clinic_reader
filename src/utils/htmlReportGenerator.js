@@ -1,59 +1,26 @@
 /**
  * htmlReportGenerator.js
- * Generates a self-contained HTML report from patient data.
- * The HTML includes inline CSS/JS, no external dependencies.
+ * Generates a self-contained HTML report matching the extension's Overview layout.
  */
 
 export function generateHtmlReport(patientName, patientId, data) {
   const now = new Date();
   const dateStr = formatDateTime(now);
 
-  const sections = [];
+  // Build each panel
+  const diagnosisHtml = buildDiagnosisPanel(data);
+  const labPivotHtml = buildLabPivotPanel(data.labData?.rObject);
+  const westMedHtml = buildWestMedPanel(data.medicationData?.rObject);
+  const chineseMedHtml = buildChineseMedPanel(data.chinesemedData?.rObject);
+  const imagingHtml = buildImagingPanel(data.imagingData?.rObject);
+  const allergyHtml = buildAllergyPanel(data.allergyData?.rObject);
+  const surgeryHtml = buildSurgeryPanel(data.surgeryData?.rObject);
+  const dischargeHtml = buildDischargePanel(data.dischargeData?.rObject);
 
-  // 1. 過往診斷（從西藥+中藥+檢驗的 ICD code 彙整）
-  sections.push(buildDiagnosisSection(data));
-
-  // 2. 檢驗報告
-  if (data.labData?.rObject?.length) {
-    sections.push(buildLabSection(data.labData.rObject));
-  }
-
-  // 3. 西藥用藥紀錄
-  if (data.medicationData?.rObject?.length) {
-    sections.push(buildMedicationSection(data.medicationData.rObject));
-  }
-
-  // 4. 中藥用藥紀錄
-  if (data.chinesemedData?.rObject?.length) {
-    sections.push(buildChineseMedSection(data.chinesemedData.rObject));
-  }
-
-  // 5. 影像檢查
-  if (data.imagingData?.rObject?.length) {
-    sections.push(buildImagingSection(data.imagingData.rObject));
-  }
-
-  // 6. 過敏紀錄
-  if (data.allergyData?.rObject?.length) {
-    sections.push(buildAllergySection(data.allergyData.rObject));
-  }
-
-  // 7. 手術紀錄
-  if (data.surgeryData?.rObject?.length) {
-    sections.push(buildSurgerySection(data.surgeryData.rObject));
-  }
-
-  // 8. 出院摘要
-  if (data.dischargeData?.rObject?.length) {
-    sections.push(buildDischargeSection(data.dischargeData.rObject));
-  }
-
-  // 9. 餘藥天數
-  if (data.medDaysData?.rObject?.length) {
-    sections.push(buildMedDaysSection(data.medDaysData.rObject));
-  }
-
-  return buildFullHtml(patientName, patientId, dateStr, sections.join('\n'));
+  return buildFullHtml(patientName, patientId, dateStr, {
+    diagnosisHtml, labPivotHtml, westMedHtml, chineseMedHtml,
+    imagingHtml, allergyHtml, surgeryHtml, dischargeHtml
+  });
 }
 
 export function getReportFilename(patientName, date) {
@@ -68,35 +35,111 @@ export function getReportFilename(patientName, date) {
 }
 
 // --- Helpers ---
-
 function formatDateTime(d) {
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
-
-function esc(str) {
-  if (!str) return '';
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function esc(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
+function parseDate(r) { if(!r) return ''; if(r.includes('T')) return r.split('T')[0]; return r.replace(/\//g,'-'); }
+function shortDate(r) {
+  const d = parseDate(r);
+  if (!d) return '';
+  const parts = d.split('-');
+  if (parts.length === 3) return `${parts[1]}/${parts[2]}`;
+  return d;
 }
+function parseHosp(r) { return r ? r.split(';')[0].trim() : ''; }
 
-function parseDate(raw) {
-  if (!raw) return '';
-  if (raw.includes('T')) return raw.split('T')[0];
-  return raw.replace(/\//g, '-');
-}
-
-function parseHosp(raw) {
-  if (!raw) return '';
-  return raw.split(';')[0].trim();
-}
-
-function groupBy(arr, keyFn) {
-  const map = {};
-  for (const item of arr) {
-    const key = keyFn(item);
-    if (!map[key]) map[key] = [];
-    map[key].push(item);
+// --- Diagnosis Panel ---
+function buildDiagnosisPanel(data) {
+  const diagMap = {};
+  function addDiag(code, name) {
+    if (!code) return;
+    const k = code.trim();
+    if (!diagMap[k]) diagMap[k] = { code: k, name: name || '' };
+    if (name && !diagMap[k].name) diagMap[k].name = name;
   }
-  return map;
+  if (data.medicationData?.rObject) {
+    for (const m of data.medicationData.rObject) addDiag(m.ICD_CODE || m.icd_code, m.ICD_NAME || m.icd_cname);
+  }
+  if (data.chinesemedData?.rObject) {
+    for (const m of data.chinesemedData.rObject) addDiag(m.icd_code, m.icd_cname);
+  }
+  if (data.labData?.rObject) {
+    for (const l of data.labData.rObject) addDiag(l.icd_code, l.icd_cname);
+  }
+  if (data.imagingData?.rObject) {
+    for (const i of data.imagingData.rObject) addDiag(i.icd_code, i.icd_cname);
+  }
+
+  const diags = Object.values(diagMap);
+  if (diags.length === 0) return '<p class="empty">無診斷紀錄</p>';
+
+  let html = '';
+  for (const d of diags) {
+    html += `<div class="diag-item"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)}</div>`;
+  }
+  return html;
+}
+
+// --- Lab Pivot Table (dates as columns, items as rows) ---
+function buildLabPivotPanel(items) {
+  if (!items || items.length === 0) return '<p class="empty">無檢驗資料</p>';
+
+  // Filter to items with actual results
+  const labItems = items.filter(l => {
+    const v = l.assay_value;
+    return v && v.trim() !== '' && v.trim() !== '***';
+  });
+  if (labItems.length === 0) return '<p class="empty">無檢驗結果</p>';
+
+  // Collect all dates and items
+  const dateSet = new Set();
+  const itemMap = {}; // itemName -> { dates: { date: { value, ref, isAbnormal } } }
+
+  for (const l of labItems) {
+    const date = parseDate(l.real_inspect_date || l.recipe_date || '');
+    const name = l.assay_item_name || l.order_name || '';
+    const value = l.assay_value || '';
+    const ref = l.consult_value || '';
+    if (!date || !name) continue;
+
+    dateSet.add(date);
+    if (!itemMap[name]) itemMap[name] = { name, dates: {} };
+    itemMap[name].dates[date] = {
+      value,
+      ref,
+      isAbnormal: checkAbnormal(value, ref)
+    };
+  }
+
+  // Sort dates descending (newest first), take last 6
+  const dates = [...dateSet].sort().reverse().slice(0, 6).reverse();
+  const itemNames = Object.keys(itemMap);
+
+  if (dates.length === 0 || itemNames.length === 0) return '<p class="empty">無檢驗結果</p>';
+
+  // Build header
+  let thead = '<tr><th class="lab-item-col">項目</th>';
+  for (const d of dates) thead += `<th class="lab-date-col">${esc(shortDate(d))}</th>`;
+  thead += '</tr>';
+
+  // Build rows
+  let tbody = '';
+  for (const name of itemNames) {
+    const item = itemMap[name];
+    tbody += `<tr><td class="lab-item-name">${esc(name)}</td>`;
+    for (const d of dates) {
+      const cell = item.dates[d];
+      if (cell) {
+        tbody += `<td class="${cell.isAbnormal ? 'abnormal' : ''}">${esc(cell.value)}</td>`;
+      } else {
+        tbody += '<td class="no-data">—</td>';
+      }
+    }
+    tbody += '</tr>';
+  }
+
+  return `<table class="lab-pivot"><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
 }
 
 function checkAbnormal(value, reference) {
@@ -104,11 +147,7 @@ function checkAbnormal(value, reference) {
   const num = parseFloat(value);
   if (isNaN(num)) return false;
   const rangeMatch = reference.match(/([\d.]+)\s*[-~]\s*([\d.]+)/);
-  if (rangeMatch) {
-    const low = parseFloat(rangeMatch[1]);
-    const high = parseFloat(rangeMatch[2]);
-    return num < low || num > high;
-  }
+  if (rangeMatch) return num < parseFloat(rangeMatch[1]) || num > parseFloat(rangeMatch[2]);
   const ltMatch = reference.match(/[<≦]\s*([\d.]+)/);
   if (ltMatch) return num > parseFloat(ltMatch[1]);
   const gtMatch = reference.match(/[>≧]\s*([\d.]+)/);
@@ -116,296 +155,142 @@ function checkAbnormal(value, reference) {
   return false;
 }
 
-// --- Section: 過往診斷 ---
+// --- West Med Panel ---
+function buildWestMedPanel(items) {
+  if (!items || items.length === 0) return '<p class="empty">無西藥紀錄</p>';
 
-function buildDiagnosisSection(data) {
-  // Collect all ICD codes from medications, chinese meds, lab, imaging
-  const diagMap = {}; // key: "ICD_CODE" => { code, name, dates: Set, hospitals: Set }
-
-  function addDiag(code, name, date, hosp) {
-    if (!code) return;
-    const key = code.trim();
-    if (!diagMap[key]) {
-      diagMap[key] = { code: key, name: name || '', dates: new Set(), hospitals: new Set() };
-    }
-    if (name && !diagMap[key].name) diagMap[key].name = name;
-    if (date) diagMap[key].dates.add(parseDate(date));
-    if (hosp) diagMap[key].hospitals.add(parseHosp(hosp));
+  // Group by date + hospital
+  const groups = {};
+  for (const m of items) {
+    const date = parseDate(m.PER_DATE || m.drug_date || '');
+    const hosp = parseHosp(m.HOSP_NAME || m.hosp);
+    const key = `${date}|${hosp}`;
+    if (!groups[key]) groups[key] = { date, hosp, icd: m.ICD_CODE || m.icd_code || '', icdName: m.ICD_NAME || m.icd_cname || '', meds: [] };
+    groups[key].meds.push(m);
   }
 
-  // From western medications
-  if (data.medicationData?.rObject) {
-    for (const m of data.medicationData.rObject) {
-      addDiag(m.ICD_CODE || m.icd_code, m.ICD_NAME || m.icd_cname, m.PER_DATE || m.drug_date, m.HOSP_NAME || m.hosp);
-    }
-  }
-  // From chinese medicine
-  if (data.chinesemedData?.rObject) {
-    for (const m of data.chinesemedData.rObject) {
-      addDiag(m.icd_code, m.icd_cname, m.func_date, m.hosp);
-    }
-  }
-  // From lab data
-  if (data.labData?.rObject) {
-    for (const l of data.labData.rObject) {
-      addDiag(l.icd_code, l.icd_cname, l.real_inspect_date || l.recipe_date, l.hosp);
-    }
-  }
-  // From imaging
-  if (data.imagingData?.rObject) {
-    for (const i of data.imagingData.rObject) {
-      addDiag(i.icd_code, i.icd_cname, i.real_inspect_date || i.case_time || i.recipe_date, i.hosp);
-    }
-  }
-
-  const diagList = Object.values(diagMap);
-  if (diagList.length === 0) {
-    return `<div class="section full-width">
-      <h2 onclick="toggleSection(this)">▸ 過往診斷</h2>
-      <div class="section-body"><p>無診斷紀錄</p></div></div>`;
-  }
-
-  // Sort by most recent date descending
-  diagList.sort((a, b) => {
-    const da = [...a.dates].sort().pop() || '';
-    const db = [...b.dates].sort().pop() || '';
-    return db.localeCompare(da);
-  });
-
-  let rows = '';
-  for (const d of diagList) {
-    const dates = [...d.dates].sort().reverse().join(', ');
-    const hosps = [...d.hospitals].join(', ');
-    rows += `<tr><td><strong>${esc(d.code)}</strong></td><td>${esc(d.name)}</td><td>${esc(dates)}</td><td>${esc(hosps)}</td></tr>`;
-  }
-
-  return `<div class="section full-width">
-    <h2 onclick="toggleSection(this)">▸ 過往診斷 (${diagList.length})</h2>
-    <div class="section-body">
-      <table><thead><tr><th>診斷碼</th><th>診斷名稱</th><th>就診日期</th><th>醫療院所</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    </div></div>`;
-}
-
-// --- Section: 檢驗報告 ---
-
-function buildLabSection(items) {
-  // Only include items that have actual test results (assay_value exists and is not empty/***)
-  const labItems = items.filter(l => {
-    const val = l.assay_value;
-    return val && val.trim() !== '' && val.trim() !== '***';
-  });
-
-  if (labItems.length === 0) {
-    return `<div class="section full-width">
-      <h2 onclick="toggleSection(this)">▸ 檢驗報告</h2>
-      <div class="section-body"><p>無檢驗結果</p></div></div>`;
-  }
-
-  const groups = groupBy(labItems, i => `${i.real_inspect_date || i.recipe_date || ''}|${parseHosp(i.hosp)}`);
-
-  let rows = '';
-  for (const [key, labs] of Object.entries(groups)) {
-    const [date, hosp] = key.split('|');
-    rows += `<tr class="group-header"><td colspan="4">${esc(parseDate(date))} — ${esc(hosp)}</td></tr>`;
-    for (const l of labs) {
-      const name = l.assay_item_name || l.order_name || '';
-      const value = l.assay_value || '';
-      const ref = l.consult_value || '';
-      const unit = l.unit_data || '';
-      const isAbnormal = checkAbnormal(value, ref);
-      rows += `<tr>
-        <td>${esc(name)}</td>
-        <td class="${isAbnormal ? 'abnormal' : ''}">${esc(value)}</td>
-        <td>${esc(ref)}</td>
-        <td>${esc(unit)}</td></tr>`;
-    }
-  }
-
-  return `<div class="section full-width">
-    <h2 onclick="toggleSection(this)">▸ 檢驗報告 (${labItems.length})</h2>
-    <div class="section-body">
-      <table><thead><tr><th>檢驗項目</th><th>結果</th><th>參考值</th><th>單位</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    </div></div>`;
-}
-
-// --- Section: 西藥 ---
-
-function buildMedicationSection(items) {
-  const groups = groupBy(items, i => `${i.PER_DATE || i.drug_date || ''}|${parseHosp(i.HOSP_NAME || i.hosp)}`);
-
-  let rows = '';
-  for (const [key, meds] of Object.entries(groups)) {
-    const [date, hosp] = key.split('|');
-    const icd = meds[0]?.ICD_CODE || meds[0]?.icd_code || '';
-    const icdName = meds[0]?.ICD_NAME || meds[0]?.icd_cname || '';
-    rows += `<tr class="group-header"><td colspan="5">${esc(parseDate(date))} — ${esc(hosp)} ${icd ? `(${esc(icd)} ${esc(icdName)})` : ''}</td></tr>`;
-    for (const m of meds) {
+  let html = '';
+  for (const g of Object.values(groups)) {
+    html += `<div class="med-group-header">${esc(shortDate(g.date))} ${esc(g.hosp)}`;
+    if (g.icd) html += ` <span class="diag-code">${esc(g.icd)}</span>`;
+    html += '</div>';
+    for (const m of g.meds) {
       const name = m.MED_DESC || m.MED_ITEM || m.drug_ename || '';
-      const generic = m.GENERIC_NAME || m.drug_ing_name || '';
-      const dosage = m.DOSAGE || m.qty || '';
       const freq = m.FREQ_DESC || m.drug_fre || '';
       const days = m.MED_DAYS || m.day || '';
-      rows += `<tr>
-        <td>${esc(name)}${generic ? `<br><span class="sub">${esc(generic)}</span>` : ''}</td>
-        <td>${esc(dosage)}</td><td>${esc(freq)}</td><td>${esc(days)}</td></tr>`;
+      html += `<div class="med-item">${esc(name)} <span class="med-detail">${esc(freq)} ${days ? days+'天' : ''}</span></div>`;
     }
   }
-
-  return `<div class="section full-width">
-    <h2 onclick="toggleSection(this)">▸ 西藥用藥紀錄 (${items.length})</h2>
-    <div class="section-body">
-      <table><thead><tr><th>藥品名稱</th><th>劑量</th><th>頻率</th><th>天數</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    </div></div>`;
+  return html;
 }
 
-// --- Section: 中藥 ---
+// --- Chinese Med Panel ---
+function buildChineseMedPanel(items) {
+  if (!items || items.length === 0) return '<p class="empty">無中藥紀錄</p>';
 
-function buildChineseMedSection(items) {
-  const groups = groupBy(items, i => `${i.func_date || ''}|${parseHosp(i.hosp)}`);
+  const groups = {};
+  for (const m of items) {
+    const date = parseDate(m.func_date || '');
+    const hosp = parseHosp(m.hosp);
+    const key = `${date}|${hosp}`;
+    if (!groups[key]) groups[key] = { date, hosp, icd: m.icd_code || '', icdName: m.icd_cname || '', meds: [] };
+    groups[key].meds.push(m);
+  }
 
-  let rows = '';
-  for (const [key, meds] of Object.entries(groups)) {
-    const [date, hosp] = key.split('|');
-    const icd = meds[0]?.icd_code || '';
-    const icdName = meds[0]?.icd_cname || '';
-    rows += `<tr class="group-header"><td colspan="4">${esc(parseDate(date))} — ${esc(hosp)} ${icd ? `(${esc(icd)} ${esc(icdName)})` : ''}</td></tr>`;
-    for (const m of meds) {
+  let html = '';
+  for (const g of Object.values(groups)) {
+    html += `<div class="med-group-header">${esc(shortDate(g.date))} ${esc(g.hosp)}`;
+    if (g.icd) html += ` <span class="diag-code">${esc(g.icd)}</span>`;
+    html += '</div>';
+    for (const m of g.meds) {
       const name = m.drug_perscrn_name || m.cdrug_name || '';
       const qty = m.order_qty || '';
       const freq = m.drug_fre || '';
       const days = m.day || '';
-      rows += `<tr><td>${esc(name)}</td><td>${esc(qty)}</td><td>${esc(freq)}</td><td>${esc(days)}</td></tr>`;
+      html += `<div class="med-item">${esc(name)} <span class="med-detail">${esc(qty)} ${esc(freq)} ${days ? days+'天' : ''}</span></div>`;
     }
   }
-
-  return `<div class="section full-width">
-    <h2 onclick="toggleSection(this)">▸ 中藥用藥紀錄 (${items.length})</h2>
-    <div class="section-body">
-      <table><thead><tr><th>藥品名稱</th><th>劑量</th><th>頻率</th><th>天數</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    </div></div>`;
+  return html;
 }
 
-// --- Section: 影像 ---
+// --- Imaging Panel ---
+function buildImagingPanel(items) {
+  if (!items || items.length === 0) return '<p class="empty">無影像資料</p>';
 
-function buildImagingSection(items) {
-  let rows = '';
+  let html = '';
   for (const i of items) {
-    const date = i.real_inspect_date || i.case_time || i.recipe_date || '';
-    const hosp = parseHosp(i.hosp);
+    const date = shortDate(i.real_inspect_date || i.case_time || i.recipe_date || '');
     const name = i.order_name || '';
+    const hosp = parseHosp(i.hosp);
     const result = i.inspect_result || '';
-    const site = i.cure_path_name || '';
-    rows += `<tr><td>${esc(parseDate(date))}</td><td>${esc(hosp)}</td><td>${esc(name)}</td><td>${esc(site)}</td><td>${esc(result)}</td></tr>`;
+    html += `<div class="imaging-item">`;
+    html += `<div class="imaging-name">${esc(name)}</div>`;
+    html += `<div class="imaging-meta">${esc(date)} ${esc(hosp)}</div>`;
+    if (result) html += `<div class="imaging-result">${esc(result)}</div>`;
+    html += `</div>`;
   }
-
-  return `<div class="section">
-    <h2 onclick="toggleSection(this)">▸ 影像檢查 (${items.length})</h2>
-    <div class="section-body">
-      <table><thead><tr><th>日期</th><th>醫院</th><th>檢查項目</th><th>部位</th><th>報告</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    </div></div>`;
+  return html;
 }
 
-// --- Section: 過敏 ---
-
-function buildAllergySection(items) {
+// --- Allergy Panel ---
+function buildAllergyPanel(items) {
+  if (!items || items.length === 0) return '<p class="empty">無過敏紀錄</p>';
   const filtered = items.filter(i => {
-    const name = i.drug_name || '';
-    return name && !name.includes('未記錄') && name !== 'NP' && name !== 'N.P' && name !== 'N.P.' && !name.includes('未過敏');
+    const n = i.drug_name || '';
+    return n && !n.includes('未記錄') && n !== 'NP' && n !== 'N.P' && n !== 'N.P.' && !n.includes('未過敏');
   });
+  if (filtered.length === 0) return '<p class="empty">無過敏紀錄</p>';
 
-  if (filtered.length === 0) {
-    return `<div class="section">
-      <h2 onclick="toggleSection(this)">▸ 過敏紀錄</h2>
-      <div class="section-body"><p>無過敏紀錄</p></div></div>`;
-  }
-
-  let rows = '';
+  let html = '';
   for (const a of filtered) {
-    const date = a.upload_d || '';
     const drug = a.drug_name || '';
     const symptom = (a.sympton_name || '').replace(/;/g, ', ');
-    const severity = a.allerg_severity_level || '';
-    const hosp = parseHosp(a.hosp);
-    rows += `<tr><td>${esc(date)}</td><td>${esc(drug)}</td><td>${esc(symptom)}</td><td>${esc(severity)}</td><td>${esc(hosp)}</td></tr>`;
+    html += `<div class="allergy-item"><strong>${esc(drug)}</strong>${symptom ? ` — ${esc(symptom)}` : ''}</div>`;
   }
-
-  return `<div class="section">
-    <h2 onclick="toggleSection(this)">▸ 過敏紀錄 (${filtered.length})</h2>
-    <div class="section-body">
-      <table><thead><tr><th>日期</th><th>藥品</th><th>症狀</th><th>嚴重度</th><th>醫院</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    </div></div>`;
+  return html;
 }
 
-// --- Section: 手術 ---
-
-function buildSurgerySection(items) {
-  let rows = '';
+// --- Surgery Panel ---
+function buildSurgeryPanel(items) {
+  if (!items || items.length === 0) return '';
+  let html = '';
   for (const s of items) {
-    const date = s.exe_s_date || '';
+    const date = shortDate(s.exe_s_date || '');
     const hosp = parseHosp(s.hosp);
-    const icd = s.icd_code || '';
-    const name = s.icd_cname || '';
-    rows += `<tr><td>${esc(parseDate(date))}</td><td>${esc(hosp)}</td><td>${esc(icd)}</td><td>${esc(name)}</td></tr>`;
+    const name = s.icd_cname || s.icd_code || '';
+    html += `<div class="record-item">${esc(date)} ${esc(hosp)} — ${esc(name)}</div>`;
   }
-
-  return `<div class="section">
-    <h2 onclick="toggleSection(this)">▸ 手術紀錄 (${items.length})</h2>
-    <div class="section-body">
-      <table><thead><tr><th>日期</th><th>醫院</th><th>代碼</th><th>名稱</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    </div></div>`;
+  return html;
 }
 
-// --- Section: 出院 ---
-
-function buildDischargeSection(items) {
-  let rows = '';
+// --- Discharge Panel ---
+function buildDischargePanel(items) {
+  if (!items || items.length === 0) return '';
+  let html = '';
   for (const d of items) {
-    const inDate = d.in_date || '';
-    const outDate = d.out_date || '';
+    const inD = shortDate(d.in_date || '');
+    const outD = shortDate(d.out_date || '');
     const hosp = parseHosp(d.hosp);
-    const icd = d.icd_code || '';
-    const name = d.icd_cname || '';
-    rows += `<tr><td>${esc(parseDate(inDate))}</td><td>${esc(parseDate(outDate))}</td><td>${esc(hosp)}</td><td>${esc(icd)}</td><td>${esc(name)}</td></tr>`;
+    const name = d.icd_cname || d.icd_code || '';
+    html += `<div class="record-item">${esc(inD)}~${esc(outD)} ${esc(hosp)} — ${esc(name)}</div>`;
   }
-
-  return `<div class="section">
-    <h2 onclick="toggleSection(this)">▸ 出院摘要 (${items.length})</h2>
-    <div class="section-body">
-      <table><thead><tr><th>入院日</th><th>出院日</th><th>醫院</th><th>代碼</th><th>診斷</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    </div></div>`;
-}
-
-// --- Section: 餘藥 ---
-
-function buildMedDaysSection(items) {
-  let rows = '';
-  for (const m of items) {
-    const name = m.MED_DESC || m.MED_ITEM || m.drug_ename || '';
-    const left = m.DRUG_LEFT || m.drug_left || '';
-    const date = m.PER_DATE || m.drug_date || '';
-    const hosp = parseHosp(m.HOSP_NAME || m.hosp);
-    rows += `<tr><td>${esc(name)}</td><td>${esc(left)}</td><td>${esc(parseDate(date))}</td><td>${esc(hosp)}</td></tr>`;
-  }
-
-  return `<div class="section">
-    <h2 onclick="toggleSection(this)">▸ 餘藥天數 (${items.length})</h2>
-    <div class="section-body">
-      <table><thead><tr><th>藥品</th><th>餘藥天數</th><th>開立日期</th><th>醫院</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    </div></div>`;
+  return html;
 }
 
 // --- Full HTML ---
+function buildFullHtml(name, id, dateStr, panels) {
+  // Build optional small sections for right column
+  let rightExtra = '';
+  if (panels.allergyHtml && !panels.allergyHtml.includes('無過敏')) {
+    rightExtra += `<div class="panel"><div class="panel-title">⚠ 過敏紀錄</div><div class="panel-body">${panels.allergyHtml}</div></div>`;
+  }
+  if (panels.surgeryHtml) {
+    rightExtra += `<div class="panel"><div class="panel-title">🔪 手術紀錄</div><div class="panel-body">${panels.surgeryHtml}</div></div>`;
+  }
+  if (panels.dischargeHtml) {
+    rightExtra += `<div class="panel"><div class="panel-title">🏥 出院摘要</div><div class="panel-body">${panels.dischargeHtml}</div></div>`;
+  }
 
-function buildFullHtml(name, id, dateStr, sectionsHtml) {
   return `<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -413,69 +298,117 @@ function buildFullHtml(name, id, dateStr, sectionsHtml) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(name)} — 醫療資料報告</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; background: #f5f5f5; color: #333; padding: 16px; }
-  .header { background: #1976d2; color: white; padding: 16px 20px; border-radius: 8px; margin-bottom: 12px; }
-  .header h1 { font-size: 22px; margin-bottom: 2px; }
-  .header .meta { font-size: 13px; opacity: 0.9; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .section { background: white; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
-  .section.full-width { grid-column: 1 / -1; }
-  .section h2 { font-size: 14px; padding: 8px 12px; cursor: pointer; user-select: none; background: #fafafa; border-bottom: 1px solid #eee; margin: 0; }
-  .section h2:hover { background: #f0f0f0; }
-  .section-body { padding: 0; }
-  .section-body.collapsed { display: none; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th { background: #f8f9fa; text-align: left; padding: 5px 8px; border-bottom: 2px solid #dee2e6; font-weight: 600; white-space: nowrap; }
-  td { padding: 4px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
-  tr:hover { background: #f8f9ff; }
-  tr.group-header td { background: #e3f2fd; font-weight: 600; font-size: 12px; color: #1565c0; padding: 6px 8px; }
-  .abnormal { color: #d32f2f; font-weight: bold; }
-  .sub { color: #888; font-size: 10px; }
-  .nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-  .nav a { background: #1976d2; color: white; padding: 4px 12px; border-radius: 4px; text-decoration: none; font-size: 12px; cursor: pointer; }
-  .nav a:hover { background: #1565c0; }
-  p { padding: 8px 12px; color: #666; font-size: 12px; }
-  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
-  @media print {
-    body { padding: 0; background: white; }
-    .header { border-radius: 0; }
-    .grid { grid-template-columns: 1fr 1fr; gap: 8px; }
-    .section { box-shadow: none; break-inside: avoid; }
-    .section-body.collapsed { display: block !important; }
-    .nav { display: none; }
-  }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0f2f5; color:#333; font-size:13px; }
+
+.header { background:#1976d2; color:#fff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; }
+.header h1 { font-size:18px; font-weight:600; }
+.header .meta { font-size:12px; opacity:0.85; }
+.header .actions { display:flex; gap:8px; }
+.header .actions a { color:#fff; background:rgba(255,255,255,0.2); padding:4px 12px; border-radius:4px; text-decoration:none; font-size:12px; cursor:pointer; }
+.header .actions a:hover { background:rgba(255,255,255,0.35); }
+
+.layout { display:grid; grid-template-columns:1fr 1.5fr 1fr; gap:12px; padding:12px; min-height:calc(100vh - 60px); }
+
+.column { display:flex; flex-direction:column; gap:10px; }
+
+.panel { background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.08); overflow:hidden; }
+.panel-title { font-size:14px; font-weight:600; padding:10px 14px; border-bottom:1px solid #e8e8e8; color:#333; }
+.panel-body { padding:10px 14px; }
+
+/* Diagnosis */
+.diag-item { padding:4px 0; border-bottom:1px solid #f5f5f5; font-size:13px; }
+.diag-item:last-child { border-bottom:none; }
+.diag-code { background:#e8f5e9; color:#2e7d32; padding:1px 6px; border-radius:3px; font-size:11px; font-weight:600; margin-right:6px; }
+
+/* Lab pivot table */
+.lab-pivot { width:100%; border-collapse:collapse; font-size:12px; }
+.lab-pivot th { background:#f5f7fa; padding:6px 8px; text-align:center; border-bottom:2px solid #dee2e6; font-weight:600; font-size:11px; }
+.lab-pivot td { padding:5px 8px; text-align:center; border-bottom:1px solid #f0f0f0; }
+.lab-pivot .lab-item-name { text-align:left; font-weight:600; white-space:nowrap; }
+.lab-pivot .lab-item-col { text-align:left; }
+.lab-pivot .no-data { color:#ccc; }
+.lab-pivot .abnormal { color:#d32f2f; font-weight:bold; }
+.lab-pivot tr:hover { background:#f8f9ff; }
+
+/* Medications */
+.med-group-header { font-size:12px; font-weight:600; color:#1565c0; background:#e3f2fd; padding:5px 10px; margin-top:6px; border-radius:4px; }
+.med-group-header:first-child { margin-top:0; }
+.med-item { padding:3px 0 3px 10px; font-size:12px; border-bottom:1px solid #fafafa; }
+.med-detail { color:#888; font-size:11px; }
+
+/* Imaging */
+.imaging-item { padding:6px 0; border-bottom:1px solid #f5f5f5; }
+.imaging-item:last-child { border-bottom:none; }
+.imaging-name { font-weight:600; font-size:12px; }
+.imaging-meta { font-size:11px; color:#888; margin-top:2px; }
+.imaging-result { font-size:11px; color:#555; margin-top:2px; padding:4px 8px; background:#f9f9f9; border-radius:3px; }
+
+/* Allergy */
+.allergy-item { padding:4px 0; font-size:12px; }
+
+/* Records */
+.record-item { padding:4px 0; font-size:12px; border-bottom:1px solid #f5f5f5; }
+.record-item:last-child { border-bottom:none; }
+
+.empty { color:#999; font-size:12px; padding:8px 0; }
+
+@media (max-width:1000px) { .layout { grid-template-columns:1fr; } }
+@media print {
+  body { background:#fff; }
+  .header .actions { display:none; }
+  .layout { gap:8px; padding:8px; }
+  .panel { box-shadow:none; border:1px solid #ddd; break-inside:avoid; }
+}
 </style>
 </head>
 <body>
+
 <div class="header">
-  <h1>${esc(name)}</h1>
-  <div class="meta">身分證號：${esc(id)} ｜ 報告產生時間：${esc(dateStr)}</div>
+  <div>
+    <h1>${esc(name)}</h1>
+    <div class="meta">${esc(id)} ｜ ${esc(dateStr)}</div>
+  </div>
+  <div class="actions">
+    <a onclick="window.print()">列印</a>
+  </div>
 </div>
-<div class="nav">
-  <a onclick="expandAll()">全部展開</a>
-  <a onclick="collapseAll()">全部收合</a>
-  <a onclick="window.print()">列印</a>
+
+<div class="layout">
+  <!-- Left Column -->
+  <div class="column">
+    <div class="panel">
+      <div class="panel-title">就醫診斷與收案</div>
+      <div class="panel-body">${panels.diagnosisHtml}</div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">關注西藥</div>
+      <div class="panel-body">${panels.westMedHtml}</div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">中藥用藥</div>
+      <div class="panel-body">${panels.chineseMedHtml}</div>
+    </div>
+  </div>
+
+  <!-- Center Column -->
+  <div class="column">
+    <div class="panel">
+      <div class="panel-title">關注檢驗</div>
+      <div class="panel-body" style="padding:0;">${panels.labPivotHtml}</div>
+    </div>
+  </div>
+
+  <!-- Right Column -->
+  <div class="column">
+    <div class="panel">
+      <div class="panel-title">關注影像</div>
+      <div class="panel-body">${panels.imagingHtml}</div>
+    </div>
+    ${rightExtra}
+  </div>
 </div>
-<div class="grid">
-${sectionsHtml}
-</div>
-<script>
-function toggleSection(h2) {
-  var body = h2.nextElementSibling;
-  var isCollapsed = body.classList.toggle('collapsed');
-  h2.textContent = h2.textContent.replace(/^[▸▾]/, isCollapsed ? '▸' : '▾');
-}
-function expandAll() {
-  document.querySelectorAll('.section-body').forEach(function(b) { b.classList.remove('collapsed'); });
-  document.querySelectorAll('.section h2').forEach(function(h) { h.textContent = h.textContent.replace(/^▸/, '▾'); });
-}
-function collapseAll() {
-  document.querySelectorAll('.section-body').forEach(function(b) { b.classList.add('collapsed'); });
-  document.querySelectorAll('.section h2').forEach(function(h) { h.textContent = h.textContent.replace(/^▾/, '▸'); });
-}
-expandAll();
-</script>
+
 </body>
 </html>`;
 }
