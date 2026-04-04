@@ -60,18 +60,25 @@ async function autoExportToSharedFolder() {
     }
 
     // Extract patient name from JWT token (has UserName and UserID)
+    // Token may have "Bearer " prefix from Authorization header
     let patientName = patientId;
     try {
-      const token = currentSessionData.token;
-      if (token) {
-        const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      let rawToken = currentSessionData.token;
+      if (rawToken) {
+        if (rawToken.startsWith('Bearer ')) rawToken = rawToken.slice(7);
+        const base64 = rawToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
         const jsonPayload = decodeURIComponent(
           atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
         );
         const payload = JSON.parse(jsonPayload);
         if (payload.UserName) patientName = payload.UserName;
+        console.log(`[NHITW Clinic] Patient name from token: ${patientName}`);
+      } else {
+        console.log('[NHITW Clinic] No token available, using ID as name');
       }
-    } catch (e) { /* token parsing failed, use patientId as name */ }
+    } catch (e) {
+      console.warn('[NHITW Clinic] Token parsing failed:', e.message);
+    }
 
     const exportData = {};
     for (const [key, value] of Object.entries(currentSessionData)) {
