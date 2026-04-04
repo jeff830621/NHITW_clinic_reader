@@ -122,7 +122,6 @@ export const DEFAULT_SETTINGS = {
 
   sharedFolder: {
     enabled: false,
-    role: "capture",
     retentionDays: 7,
   },
 };

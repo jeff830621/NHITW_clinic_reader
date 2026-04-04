@@ -1,6 +1,6 @@
-# NHITW 診間閱讀器
+# NHITW 診間報告產生器
 
-本專案是 [NHITW Cloud Analyzer (更好的健保雲端 2.0)](https://github.com/leescot/NHITW_cloud_analyzer_react_MUI) 的衍生版本，新增**共享資料夾橋接功能**，讓診間醫師能查看櫃檯擷取的健保雲端病患資料。
+本專案是 [NHITW Cloud Analyzer (更好的健保雲端 2.0)](https://github.com/leescot/NHITW_cloud_analyzer_react_MUI) 的衍生版本，新增**自動匯出 HTML 報告**功能。
 
 感謝原作者 [leescot](https://github.com/leescot) 及所有貢獻者開發了這個優秀的工具。
 
@@ -11,59 +11,59 @@
 - 醫師在**診間**無法直接存取健保雲端
 - 但兩端在同一區域網路，有 Windows 共享資料夾
 
-本專案讓擴充套件多了兩種運作模式，透過共享資料夾自動同步資料，醫師不必離開診間就能查看完整的病患醫療紀錄。
+本專案讓擴充套件在查詢健保雲端時，自動產生一份完整的 HTML 病患報告，存到共享資料夾。醫師在診間**雙擊 HTML 檔就能看到所有資料**，不需要安裝任何軟體。
 
-## 新增功能
+## 功能
 
-- **櫃檯擷取模式**：原始擴充套件功能 + 自動將病患資料匯出到共享資料夾
-- **診間閱讀模式**：從共享資料夾載入病患資料，用同一套 UI 完整顯示
-- **病患列表**：依日期瀏覽今日已查詢的病患，支援搜尋
-- **PowerShell Native Messaging Host**：橋接 Chrome 與本地檔案系統，Windows 內建零依賴
-- **一鍵安裝腳本**：`install.bat` 自動完成所有設定
+- **自動匯出**：查詢健保雲端後自動產生 HTML 報告到共享資料夾
+- **完整資料**：涵蓋全部 13+ 種資料類型（西藥、中藥、檢驗、影像、過敏、手術、出院摘要等）
+- **檢驗異常標紅**：超出參考值的檢驗數據自動標紅
+- **可摺疊區塊**：每個資料類型可展開/收合
+- **可列印**：列印時自動展開所有區塊
+- **零安裝診間端**：診間電腦不需要安裝任何東西，直接開 HTML 檔
 
-所有原始功能（西藥、中藥、檢驗、影像、過敏、手術、出院摘要等 13+ 種資料類型）完整保留。
+## 安裝步驟（僅櫃檯電腦）
 
-## 安裝步驟
+### 1. 載入擴充套件
 
-### 1. 下載並載入擴充套件
-
-1. 前往 [Releases 頁面](https://github.com/jeff830621/NHITW_clinic_reader/releases) 下載最新版壓縮檔，或直接 [下載 ZIP](https://github.com/jeff830621/NHITW_clinic_reader/archive/refs/heads/feat/clinic-reader.zip) 解壓縮
+1. [下載 ZIP](https://github.com/jeff830621/NHITW_clinic_reader/archive/refs/heads/feat/clinic-reader.zip) 並解壓縮
 2. 開啟 Chrome → `chrome://extensions` → 開發者模式
 3. 點擊「載入未封裝項目」→ 選擇解壓後的 `dist/` 資料夾
 4. 記下擴充套件 ID
 
-### 3. 安裝 Native Messaging Host
+### 2. 安裝 Native Messaging Host
 
-在**櫃檯**和**診間**電腦都要執行：
-
-1. 找到 `native-host` 資料夾
+1. 找到解壓後的 `native-host` 資料夾
 2. 執行 `install.bat`
-3. 輸入共享資料夾路徑（兩台電腦必須一致，例如 `\\SERVER\shared\nhitw-data`）
+3. 輸入共享資料夾路徑（例如 `\\SERVER\shared\nhitw-data`）
 4. 輸入擴充套件 ID
 5. 重新啟動 Chrome
 
-### 4. 設定角色
+### 3. 啟用功能
 
-1. 點擊擴充套件圖示 → 設定 → 滾動到「共享資料夾設定」
-2. 啟用功能並選擇角色：
-   - 櫃檯電腦 → **櫃檯模式**
-   - 診間電腦 → **診間模式**
+1. 點擊擴充套件圖示 → 設定
+2. 滾動到「自動匯出 HTML 報告」
+3. 開啟「啟用自動匯出」
+4. 點擊「檢查連線」確認 Native Host 正常
 
-### 5. 開始使用
+### 4. 使用方式
 
-- **櫃檯**：照常查詢健保雲端，資料自動匯出
-- **診間**：點擊設定中的「開啟診間閱讀器」，從列表選擇病患
+- **櫃檯**：照常查詢健保雲端，HTML 報告自動產生
+- **診間**：從共享資料夾打開病患的 HTML 檔案即可
+
+報告檔名格式：`王小明_20260404_1030.html`
 
 ## 技術架構
 
 ```
-櫃檯 Chrome ──► Native Host ──► 共享資料夾 ◄── Native Host ◄── 診間 Chrome
-  (擷取模式)    (PowerShell)      (SMB)       (PowerShell)     (閱讀模式)
+櫃檯 Chrome ──► 擴充套件自動產生 HTML ──► Native Host ──► 共享資料夾
+                                         (PowerShell)      (SMB)
+                                                              │
+                                              診間電腦直接開啟 HTML ◄┘
 ```
 
 - Chrome Extension Manifest V3 + React 19 + MUI 6.5
-- PowerShell Native Messaging Host（Windows 內建）
-- Windows SMB 共享資料夾同步
+- PowerShell Native Messaging Host（Windows 內建，零依賴）
 
 ## 解除安裝
 

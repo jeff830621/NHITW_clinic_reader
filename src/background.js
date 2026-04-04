@@ -1,6 +1,9 @@
 // background.js
 // 監聽藥歷 API 請求
 
+import { writeHtml } from './utils/nativeHostBridge.js';
+import { generateHtmlReport, getReportFilename } from './utils/htmlReportGenerator.js';
+
 // Modify currentSessionData to include new data types
 let currentSessionData = {
   medicationData: null,
@@ -24,7 +27,7 @@ async function autoExportToSharedFolder() {
   try {
     const settings = await chrome.storage.sync.get('sharedFolder');
     const sharedFolder = settings.sharedFolder || {};
-    if (!sharedFolder.enabled || sharedFolder.role !== 'capture') return;
+    if (!sharedFolder.enabled) return;
 
     // currentUserSession is a string like "patient_A123456789" or "token_xxx"
     const session = currentSessionData.currentUserSession;
@@ -56,20 +59,11 @@ async function autoExportToSharedFolder() {
       }
     }
 
-    const { writePatient, writeHtml } = await import('./utils/nativeHostBridge.js');
-    await writePatient(patientId, patientName, exportData);
-    console.log(`[NHITW Clinic] Exported patient ${patientId} to shared folder`);
-
-    // Generate and write HTML report
-    try {
-      const { generateHtmlReport, getReportFilename } = await import('./utils/htmlReportGenerator.js');
-      const html = generateHtmlReport(patientName, patientId, exportData);
-      const filename = getReportFilename(patientName);
-      await writeHtml(filename, html);
-      console.log(`[NHITW Clinic] HTML report saved: ${filename}`);
-    } catch (htmlErr) {
-      console.warn('[NHITW Clinic] HTML report generation failed (non-blocking):', htmlErr.message);
-    }
+    // Generate and write HTML report only (no JSON)
+    const html = generateHtmlReport(patientName, patientId, exportData);
+    const filename = getReportFilename(patientName);
+    await writeHtml(filename, html);
+    console.log(`[NHITW Clinic] HTML report saved: ${filename}`);
   } catch (err) {
     console.warn('[NHITW Clinic] Auto-export failed (non-blocking):', err.message);
   }
@@ -241,45 +235,6 @@ const ACTION_HANDLERS = new Map([
     sendResponse({ status: "token_saved" });
   }],
 
-  ['readManifest', async (message, sender, sendResponse) => {
-    try {
-      const { readManifest } = await import('./utils/nativeHostBridge.js');
-      const result = await readManifest(message.date);
-      sendResponse(result);
-    } catch (err) {
-      sendResponse({ success: false, error: err.message });
-    }
-  }],
-
-  ['readPatient', async (message, sender, sendResponse) => {
-    try {
-      const { readPatient } = await import('./utils/nativeHostBridge.js');
-      const result = await readPatient(message.filename, message.date);
-      sendResponse(result);
-    } catch (err) {
-      sendResponse({ success: false, error: err.message });
-    }
-  }],
-
-  ['searchPatient', async (message, sender, sendResponse) => {
-    try {
-      const { searchPatient } = await import('./utils/nativeHostBridge.js');
-      const result = await searchPatient(message.query);
-      sendResponse(result);
-    } catch (err) {
-      sendResponse({ success: false, error: err.message });
-    }
-  }],
-
-  ['checkHostStatus', async (message, sender, sendResponse) => {
-    try {
-      const { isHostAvailable } = await import('./utils/nativeHostBridge.js');
-      const available = await isHostAvailable();
-      sendResponse({ success: true, available });
-    } catch (err) {
-      sendResponse({ success: false, available: false, error: err.message });
-    }
-  }],
 ]);
 
 // 通用數據保存處理函數
