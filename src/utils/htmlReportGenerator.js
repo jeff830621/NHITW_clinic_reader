@@ -10,7 +10,7 @@ export function generateHtmlReport(patientName, patientId, data) {
   // Build each panel
   const diagnosisHtml = buildDiagnosisPanel(data);
   const labPivotHtml = buildLabPivotPanel(data.labData?.rObject);
-  const westMedHtml = buildWestMedPanel(data.medicationData?.rObject);
+  const westMedHtml = buildWestMedPanel(data.medicationData?.rObject, 100);
   const chineseMedHtml = buildChineseMedPanel(data.chinesemedData?.rObject);
   const imagingHtml = buildImagingPanel(data.imagingData?.rObject);
   const allergyHtml = buildAllergyPanel(data.allergyData?.rObject);
@@ -155,33 +155,130 @@ function checkAbnormal(value, reference) {
   return false;
 }
 
-// --- West Med Panel ---
-function buildWestMedPanel(items) {
-  if (!items || items.length === 0) return '<p class="empty">無西藥紀錄</p>';
+// --- ATC5 Classification (matches extension's medicationGroups.js) ---
+const ATC5_GROUPS = {
+  NSAID: ['M01AA', 'M01AB', 'M01AC', 'M01AE', 'M01AG', 'M01AH'],
+  ACEI: ['C09AA', 'C09BA', 'C09BB', 'C09BX'],
+  ARB: ['C09CA', 'C09DA', 'C09DB', 'C09DX'],
+  STATIN: ['C10AA', 'C10BA', 'C10BX'],
+  SGLT2: ['A10BK', 'A10BD15', 'A10BD16', 'A10BD19', 'A10BD20', 'A10BD21', 'A10BD25', 'A10BD27', 'A10BD29', 'A10BD30'],
+  GLP1: ['A10BJ', 'A10AE54', 'A10AE56'],
+  '\u6297\u51DD': ['B01A'], // 抗凝
+};
 
-  // Group by date + hospital
-  const groups = {};
-  for (const m of items) {
-    const date = parseDate(m.PER_DATE || m.drug_date || '');
-    const hosp = parseHosp(m.HOSP_NAME || m.hosp);
-    const key = `${date}|${hosp}`;
-    if (!groups[key]) groups[key] = { date, hosp, icd: m.ICD_CODE || m.icd_code || '', icdName: m.ICD_NAME || m.icd_cname || '', meds: [] };
-    groups[key].meds.push(m);
-  }
+const ATC5_COLOR_GROUPS = {
+  red: ['\u6297\u51DD', 'NSAID'],    // 抗凝, NSAID
+  orange: ['ARB', 'ACEI', 'STATIN'],
+  green: ['SGLT2', 'GLP1'],
+};
 
-  let html = '';
-  for (const g of Object.values(groups)) {
-    html += `<div class="med-group-header">${esc(shortDate(g.date))} ${esc(g.hosp)}`;
-    if (g.icd) html += ` <span class="diag-code">${esc(g.icd)}</span>`;
-    html += '</div>';
-    for (const m of g.meds) {
-      const name = m.MED_DESC || m.MED_ITEM || m.drug_ename || '';
-      const freq = m.FREQ_DESC || m.drug_fre || '';
-      const days = m.MED_DAYS || m.day || '';
-      html += `<div class="med-item">${esc(name)} <span class="med-detail">${esc(freq)} ${days ? days+'天' : ''}</span></div>`;
+const COLOR_STYLES = {
+  red: { bg: '#fde8e8', border: '#e53935', text: '#b71c1c' },
+  orange: { bg: '#fff3e0', border: '#fb8c00', text: '#e65100' },
+  green: { bg: '#e8f5e9', border: '#43a047', text: '#1b5e20' },
+};
+
+function getAtc5Group(atcCode) {
+  if (!atcCode) return null;
+  for (const [groupName, codes] of Object.entries(ATC5_GROUPS)) {
+    if (codes.some(code => code.length === 7 ? atcCode === code : atcCode.startsWith(code))) {
+      return groupName;
     }
   }
-  return html;
+  return null;
+}
+
+function getColorForGroup(groupName) {
+  for (const [color, groups] of Object.entries(ATC5_COLOR_GROUPS)) {
+    if (groups.includes(groupName)) return color;
+  }
+  return null;
+}
+
+function isWithinDays(dateStr, days) {
+  if (!dateStr) return false;
+  let d = new Date(dateStr);
+  if (isNaN(d.getTime()) && dateStr.includes('/')) {
+    d = new Date(dateStr.replace(/\//g, '-'));
+  }
+  if (isNaN(d.getTime())) return false;
+  return (Date.now() - d.getTime()) <= days * 86400000;
+}
+
+// --- West Med Panel (matches extension's Important Medications logic) ---
+function buildWestMedPanel(items, trackingDays) {
+  if (!items || items.length === 0) return '<p class="empty">無西藥紀錄</p>';
+  const days = trackingDays || 100;
+
+  // Step 1: Filter meds within tracking period that match ATC5 groups
+  const matchedMeds = [];
+  for (const m of items) {
+    const date = m.PER_DATE || m.drug_date || '';
+    if (!isWithinDays(date, days)) continue;
+
+    const atcCode = m.ATC_CODE || m.drug_atc7_code || '';
+    const groupName = getAtc5Group(atcCode);
+    if (!groupName) continue;
+
+    const colorName = getColorForGroup(groupName);
+    if (!colorName) continue;
+
+    matchedMeds.push({
+      name: m.MED_DESC || m.MED_ITEM || m.drug_ename || '',
+      generic: m.GENERIC_NAME || m.drug_ing_name || '',
+      date: parseDate(date),
+      hosp: parseHosp(m.HOSP_NAME || m.hosp),
+      freq: m.FREQ_DESC || m.drug_fre || '',
+      medDays: m.MED_DAYS || m.day || '',
+      drugLeft: m.DRUG_LEFT || m.drug_left || '',
+      groupName,
+      colorName,
+    });
+  }
+
+  if (matchedMeds.length === 0) return '<p class="empty">無關注西藥紀錄</p>';
+
+  // Step 2: Group by color → group → deduplicate by name
+  const colorOrder = ['red', 'orange', 'green'];
+  const byColor = {};
+  for (const m of matchedMeds) {
+    if (!byColor[m.colorName]) byColor[m.colorName] = {};
+    if (!byColor[m.colorName][m.groupName]) byColor[m.colorName][m.groupName] = {};
+    const key = m.name;
+    if (!byColor[m.colorName][m.groupName][key]) {
+      byColor[m.colorName][m.groupName][key] = { ...m, prescriptions: [] };
+    }
+    byColor[m.colorName][m.groupName][key].prescriptions.push({
+      date: m.date, hosp: m.hosp, days: m.medDays, drugLeft: m.drugLeft
+    });
+  }
+
+  // Step 3: Render as table
+  let rows = '';
+  for (const color of colorOrder) {
+    if (!byColor[color]) continue;
+    const style = COLOR_STYLES[color];
+    for (const [groupName, meds] of Object.entries(byColor[color])) {
+      for (const med of Object.values(meds)) {
+        // Sort prescriptions newest first
+        med.prescriptions.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        const presStr = med.prescriptions.slice(0, 3).map(p =>
+          `<span class="med-pres">${esc(shortDate(p.date))} ${esc(p.hosp)}${p.drugLeft && p.drugLeft !== '0' ? ` <span class="drug-left">餘${p.drugLeft}天</span>` : ''}</span>`
+        ).join(' ');
+
+        rows += `<tr>
+          <td class="atc-badge-cell"><span class="atc-badge" style="background:${style.bg};border-color:${style.border};color:${style.text}">${esc(groupName)}</span></td>
+          <td class="med-name-cell">${esc(med.name)}</td>
+          <td class="med-pres-cell">${presStr}</td>
+        </tr>`;
+      }
+    }
+  }
+
+  return `<table class="important-med-table">
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="tracking-note">${days} 天內</div>`;
 }
 
 // --- Chinese Med Panel ---
@@ -346,6 +443,18 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 
 /* Allergy */
 .allergy-item { padding:4px 0; font-size:12px; }
+
+/* Important Medications Table */
+.important-med-table { width:100%; border-collapse:collapse; font-size:12px; }
+.important-med-table td { padding:5px 8px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+.important-med-table tr:hover { background:#f8f9ff; }
+.atc-badge-cell { width:60px; text-align:center; }
+.atc-badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600; border:1px solid; white-space:nowrap; }
+.med-name-cell { font-weight:500; }
+.med-pres-cell { font-size:11px; color:#666; }
+.med-pres { display:inline-block; margin-right:8px; padding:1px 6px; border:1px solid #ddd; border-radius:3px; font-size:10px; }
+.drug-left { color:#e65100; font-weight:600; }
+.tracking-note { font-size:10px; color:#999; text-align:right; padding:4px 8px; }
 
 /* Records */
 .record-item { padding:4px 0; font-size:12px; border-bottom:1px solid #f5f5f5; }
