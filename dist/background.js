@@ -128,8 +128,8 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
       <div class="panel-body">${a.westMedHtml}</div>
     </div>
     <div class="panel">
-      <div class="panel-title" onclick="togglePanel(this)">\u4E2D\u85E5\u7528\u85E5</div>
-      <div class="panel-body">${a.chineseMedHtml}</div>
+      <div class="panel-title collapsed" onclick="togglePanel(this)">\u4E2D\u85E5\u7528\u85E5</div>
+      <div class="panel-body collapsed">${a.chineseMedHtml}</div>
     </div>
   </div>
 

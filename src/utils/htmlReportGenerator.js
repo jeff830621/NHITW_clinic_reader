@@ -681,8 +681,8 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
       <div class="panel-body">${panels.westMedHtml}</div>
     </div>
     <div class="panel">
-      <div class="panel-title" onclick="togglePanel(this)">中藥用藥</div>
-      <div class="panel-body">${panels.chineseMedHtml}</div>
+      <div class="panel-title collapsed" onclick="togglePanel(this)">中藥用藥</div>
+      <div class="panel-body collapsed">${panels.chineseMedHtml}</div>
     </div>
   </div>
 
