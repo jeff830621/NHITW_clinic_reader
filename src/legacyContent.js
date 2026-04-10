@@ -1063,22 +1063,39 @@ function saveToken(token) {
   hasExtractedToken = true;
   console.log("Successfully extracted token:", token.substring(0, 20) + "...");
 
-  // Extract patient name and ID from JWT token in content script
-  // (content script can reliably decode JWT; background script sometimes can't)
+  // Extract patient name and ID from JWT token
+  // Try sessionStorage first (same source as the extension UI uses to show patient name)
+  // Then fall back to the Authorization header token
   let patientName = '';
   let patientIdFromToken = '';
   try {
-    const rawToken = token.startsWith('Bearer ') ? token.slice(7) : token;
-    const base64 = rawToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
-    );
-    const payload = JSON.parse(jsonPayload);
-    patientName = payload.UserName || '';
-    patientIdFromToken = payload.UserID || '';
-    console.log("[NHITW Clinic] Token decoded - Name:", patientName, "ID:", patientIdFromToken);
+    // Method 1: sessionStorage token (same as extractUserInfoFromToken in userInfoUtils.js)
+    let jwtToken = null;
+    const tokenNames = ['jwt_token', 'token', 'access_token', 'auth_token'];
+    for (const name of tokenNames) {
+      const stored = sessionStorage.getItem(name);
+      if (stored) {
+        jwtToken = stored.startsWith('Bearer ') ? stored.slice(7) : stored;
+        break;
+      }
+    }
+    // Method 2: fall back to the passed-in Authorization header token
+    if (!jwtToken) {
+      jwtToken = token.startsWith('Bearer ') ? token.slice(7) : token;
+    }
+
+    if (jwtToken && jwtToken.includes('.')) {
+      const base64 = jwtToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(
+        atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+      );
+      const payload = JSON.parse(jsonPayload);
+      patientName = payload.UserName || '';
+      patientIdFromToken = payload.UserID || '';
+    }
+    console.log("[NHITW Clinic] Patient info - Name:", patientName, "ID:", patientIdFromToken);
   } catch (e) {
-    console.warn("[NHITW Clinic] Token decode failed in content script:", e.message);
+    console.warn("[NHITW Clinic] Token decode failed:", e.message);
   }
 
   // 保存令牌到內存（不存到 localStorage）
