@@ -285,6 +285,24 @@ const ACTION_HANDLERS = new Map([
     sendResponse({ status: "token_saved" });
   }],
 
+  ['checkHostStatus', (message, sender, sendResponse) => {
+    try {
+      const port = chrome.runtime.connectNative('com.nhitw.host');
+      let responded = false;
+      port.onMessage.addListener(() => {
+        responded = true;
+        port.disconnect();
+        sendResponse({ success: true, available: true });
+      });
+      port.onDisconnect.addListener(() => {
+        if (!responded) sendResponse({ success: true, available: false });
+      });
+      port.postMessage({ action: 'read_manifest' });
+    } catch (err) {
+      sendResponse({ success: true, available: false, error: err.message });
+    }
+  }],
+
 ]);
 
 // 通用數據保存處理函數

@@ -34,18 +34,13 @@ export default function SharedFolderSettings() {
   async function checkHost() {
     setHostStatus('checking');
     try {
-      // Test native host by sending a simple message
-      const port = chrome.runtime.connectNative('com.nhitw.host');
-      let responded = false;
-      port.onMessage.addListener(() => {
-        responded = true;
-        port.disconnect();
-        setHostStatus('ok');
+      const response = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ action: 'checkHostStatus' }, (resp) => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else resolve(resp);
+        });
       });
-      port.onDisconnect.addListener(() => {
-        if (!responded) setHostStatus('error');
-      });
-      port.postMessage({ action: 'read_manifest' });
+      setHostStatus(response?.available ? 'ok' : 'error');
     } catch {
       setHostStatus('error');
     }
