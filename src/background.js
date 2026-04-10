@@ -40,7 +40,9 @@ function scheduleExport() {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'htmlExport') {
     _exportPending = false;
-    autoExportToSharedFolder();
+    autoExportToSharedFolder().catch(err => {
+      console.warn('[NHITW Clinic] Export alarm handler error:', err.message);
+    });
   }
 });
 
