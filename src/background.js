@@ -16,7 +16,9 @@ let currentSessionData = {
   medDaysData: null,     // New
   patientSummaryData: null, // Patient summary data
   token: null,
-  currentUserSession: null
+  currentUserSession: null,
+  patientName: null,
+  patientIdFromToken: null
 };
 
 /**
@@ -52,43 +54,18 @@ async function autoExportToSharedFolder() {
     const sharedFolder = settings.sharedFolder || {};
     if (!sharedFolder.enabled) return;
 
-    // Extract patient ID and name from JWT token
-    // Token is the most reliable source — has UserID (身分證) and UserName (姓名)
-    let patientId = null;
-    let patientName = null;
+    // Use patient name and ID pre-extracted by content script (sent via saveToken)
+    let patientId = currentSessionData.patientIdFromToken;
+    let patientName = currentSessionData.patientName;
 
-    try {
-      let rawToken = currentSessionData.token;
-      if (rawToken) {
-        // Strip "Bearer " prefix if present
-        if (rawToken.startsWith('Bearer ')) rawToken = rawToken.slice(7);
-        const base64 = rawToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(
-          atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
-        );
-        const payload = JSON.parse(jsonPayload);
-        console.log('[NHITW Clinic] JWT payload keys:', Object.keys(payload).join(', '));
-        console.log('[NHITW Clinic] UserID:', payload.UserID, 'UserName:', payload.UserName);
-        if (payload.UserID) patientId = payload.UserID;
-        if (payload.UserName) patientName = payload.UserName;
-      }
-    } catch (e) {
-      console.warn('[NHITW Clinic] Token parsing failed:', e.message);
-    }
-
-    // Fallback: extract ID from currentUserSession (format: "patient_A123456789")
+    // Fallback ID: extract from currentUserSession (format: "patient_A123456789")
     if (!patientId) {
       const session = currentSessionData.currentUserSession;
       if (!session) {
-        console.log('[NHITW Clinic] No session and no token, skipping export');
+        console.log('[NHITW Clinic] No session data, skipping export');
         return;
       }
-      if (session.startsWith('patient_')) {
-        patientId = session.replace('patient_', '');
-      } else {
-        patientId = session;
-      }
-      console.log('[NHITW Clinic] Using session for ID:', patientId);
+      patientId = session.startsWith('patient_') ? session.replace('patient_', '') : session;
     }
 
     // Fallback name
@@ -282,6 +259,10 @@ const ACTION_HANDLERS = new Map([
   ['saveToken', (message, sender, sendResponse) => {
     currentSessionData.token = message.token;
     currentSessionData.currentUserSession = message.userSession || currentSessionData.currentUserSession;
+    // Patient name and ID decoded by content script from JWT
+    if (message.patientName) currentSessionData.patientName = message.patientName;
+    if (message.patientIdFromToken) currentSessionData.patientIdFromToken = message.patientIdFromToken;
+    console.log(`[NHITW Clinic] saveToken received - Name: ${message.patientName}, ID: ${message.patientIdFromToken}`);
     // Token contains patient name — also trigger export schedule
     scheduleExport();
     sendResponse({ status: "token_saved" });

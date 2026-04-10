@@ -1063,11 +1063,31 @@ function saveToken(token) {
   hasExtractedToken = true;
   console.log("Successfully extracted token:", token.substring(0, 20) + "...");
 
+  // Extract patient name and ID from JWT token in content script
+  // (content script can reliably decode JWT; background script sometimes can't)
+  let patientName = '';
+  let patientIdFromToken = '';
+  try {
+    const rawToken = token.startsWith('Bearer ') ? token.slice(7) : token;
+    const base64 = rawToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+    );
+    const payload = JSON.parse(jsonPayload);
+    patientName = payload.UserName || '';
+    patientIdFromToken = payload.UserID || '';
+    console.log("[NHITW Clinic] Token decoded - Name:", patientName, "ID:", patientIdFromToken);
+  } catch (e) {
+    console.warn("[NHITW Clinic] Token decode failed in content script:", e.message);
+  }
+
   // 保存令牌到內存（不存到 localStorage）
   // 也發送給 background script 以供臨時使用
   chrome.runtime.sendMessage({
     action: "saveToken",
     token: token,
+    patientName: patientName,
+    patientIdFromToken: patientIdFromToken,
     userSession: currentUserSession,
   });
 }
