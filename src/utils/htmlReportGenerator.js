@@ -550,13 +550,13 @@ function buildFullHtml(name, id, dateStr, panels) {
   // Build optional small sections for right column
   let rightExtra = '';
   if (panels.allergyHtml && !panels.allergyHtml.includes('無過敏')) {
-    rightExtra += `<div class="panel"><div class="panel-title">⚠ 過敏紀錄</div><div class="panel-body">${panels.allergyHtml}</div></div>`;
+    rightExtra += `<div class="panel"><div class="panel-title" onclick="togglePanel(this)">⚠ 過敏紀錄</div><div class="panel-body">${panels.allergyHtml}</div></div>`;
   }
   if (panels.surgeryHtml) {
-    rightExtra += `<div class="panel"><div class="panel-title">🔪 手術紀錄</div><div class="panel-body">${panels.surgeryHtml}</div></div>`;
+    rightExtra += `<div class="panel"><div class="panel-title" onclick="togglePanel(this)">🔪 手術紀錄</div><div class="panel-body">${panels.surgeryHtml}</div></div>`;
   }
   if (panels.dischargeHtml) {
-    rightExtra += `<div class="panel"><div class="panel-title">🏥 出院摘要</div><div class="panel-body">${panels.dischargeHtml}</div></div>`;
+    rightExtra += `<div class="panel"><div class="panel-title" onclick="togglePanel(this)">🏥 出院摘要</div><div class="panel-body">${panels.dischargeHtml}</div></div>`;
   }
 
   return `<!DOCTYPE html>
@@ -581,8 +581,12 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .column { display:flex; flex-direction:column; gap:10px; }
 
 .panel { background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.08); overflow:hidden; }
-.panel-title { font-size:14px; font-weight:600; padding:10px 14px; border-bottom:1px solid #e8e8e8; color:#333; }
+.panel-title { font-size:14px; font-weight:600; padding:10px 14px; border-bottom:1px solid #e8e8e8; color:#333; cursor:pointer; user-select:none; }
+.panel-title:hover { background:#f5f5f5; }
+.panel-title::before { content:'▾ '; font-size:12px; }
+.panel-title.collapsed::before { content:'▸ '; }
 .panel-body { padding:10px 14px; }
+.panel-body.collapsed { display:none; }
 
 /* Diagnosis */
 .diag-item { padding:4px 0; border-bottom:1px solid #f5f5f5; font-size:12px; display:flex; align-items:center; gap:6px; }
@@ -646,6 +650,8 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
   .header .actions { display:none; }
   .layout { gap:8px; padding:8px; }
   .panel { box-shadow:none; border:1px solid #ddd; break-inside:avoid; }
+  .panel-body.collapsed { display:block !important; }
+  .panel-title::before { content:'▾ ' !important; }
 }
 </style>
 </head>
@@ -657,6 +663,8 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
     <div class="meta">${esc(id)} ｜ ${esc(dateStr)}</div>
   </div>
   <div class="actions">
+    <a onclick="expandAll()">全部展開</a>
+    <a onclick="collapseAll()">全部收合</a>
     <a onclick="window.print()">列印</a>
   </div>
 </div>
@@ -665,15 +673,15 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
   <!-- Left Column -->
   <div class="column">
     <div class="panel">
-      <div class="panel-title">就醫診斷與收案</div>
+      <div class="panel-title" onclick="togglePanel(this)">就醫診斷與收案</div>
       <div class="panel-body">${panels.diagnosisHtml}</div>
     </div>
     <div class="panel">
-      <div class="panel-title">關注西藥</div>
+      <div class="panel-title" onclick="togglePanel(this)">關注西藥</div>
       <div class="panel-body">${panels.westMedHtml}</div>
     </div>
     <div class="panel">
-      <div class="panel-title">中藥用藥</div>
+      <div class="panel-title" onclick="togglePanel(this)">中藥用藥</div>
       <div class="panel-body">${panels.chineseMedHtml}</div>
     </div>
   </div>
@@ -681,7 +689,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
   <!-- Center Column -->
   <div class="column">
     <div class="panel">
-      <div class="panel-title">關注檢驗</div>
+      <div class="panel-title" onclick="togglePanel(this)">關注檢驗</div>
       <div class="panel-body" style="padding:0;">${panels.labPivotHtml}</div>
     </div>
   </div>
@@ -689,13 +697,28 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
   <!-- Right Column -->
   <div class="column">
     <div class="panel">
-      <div class="panel-title">關注影像</div>
+      <div class="panel-title" onclick="togglePanel(this)">關注影像</div>
       <div class="panel-body">${panels.imagingHtml}</div>
     </div>
     ${rightExtra}
   </div>
 </div>
 
+<script>
+function togglePanel(title) {
+  title.classList.toggle('collapsed');
+  var body = title.nextElementSibling;
+  if (body) body.classList.toggle('collapsed');
+}
+function expandAll() {
+  document.querySelectorAll('.panel-title').forEach(function(t) { t.classList.remove('collapsed'); });
+  document.querySelectorAll('.panel-body').forEach(function(b) { b.classList.remove('collapsed'); });
+}
+function collapseAll() {
+  document.querySelectorAll('.panel-title').forEach(function(t) { t.classList.add('collapsed'); });
+  document.querySelectorAll('.panel-body').forEach(function(b) { b.classList.add('collapsed'); });
+}
+</script>
 </body>
 </html>`;
 }
