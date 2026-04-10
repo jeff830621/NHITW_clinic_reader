@@ -1063,39 +1063,48 @@ function saveToken(token) {
   hasExtractedToken = true;
   console.log("Successfully extracted token:", token.substring(0, 20) + "...");
 
-  // Extract patient name and ID from JWT token
-  // Try sessionStorage first (same source as the extension UI uses to show patient name)
-  // Then fall back to the Authorization header token
+  // Extract patient name directly from the page DOM
+  // The NHI cloud page header shows: 身分證號：A221***433 章玉華 民 55/06/22 女
   let patientName = '';
   let patientIdFromToken = '';
   try {
-    // Method 1: sessionStorage token (same as extractUserInfoFromToken in userInfoUtils.js)
-    let jwtToken = null;
-    const tokenNames = ['jwt_token', 'token', 'access_token', 'auth_token'];
-    for (const name of tokenNames) {
-      const stored = sessionStorage.getItem(name);
-      if (stored) {
-        jwtToken = stored.startsWith('Bearer ') ? stored.slice(7) : stored;
-        break;
-      }
-    }
-    // Method 2: fall back to the passed-in Authorization header token
-    if (!jwtToken) {
-      jwtToken = token.startsWith('Bearer ') ? token.slice(7) : token;
+    // Try reading from the page header text
+    const headerEl = document.querySelector('.patient-info, .user-info, [class*="patient"], [class*="header"]');
+    if (headerEl) {
+      const text = headerEl.textContent || '';
+      console.log("[NHITW Clinic] Header text:", text.substring(0, 100));
     }
 
-    if (jwtToken && jwtToken.includes('.')) {
-      const base64 = jwtToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(
-        atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
-      );
-      const payload = JSON.parse(jsonPayload);
-      patientName = payload.UserName || '';
-      patientIdFromToken = payload.UserID || '';
+    // Read all visible text in the top area and parse patient info
+    const bodyText = document.body.innerText || '';
+    // Pattern: 身分證號：XXXXXXXXXX 姓名 民 YY/MM/DD 性別
+    const idMatch = bodyText.match(/身分證[號]?[：:]\s*([A-Z]\d{9})/);
+    if (idMatch) patientIdFromToken = idMatch[1];
+
+    // The name is typically right after the ID pattern, or nearby
+    // Pattern: ID followed by name (Chinese characters) followed by 民
+    const nameMatch = bodyText.match(/身分證[號]?[：:]\s*[A-Z][\d*]{9}\s+([^\s民]+)/);
+    if (nameMatch) patientName = nameMatch[1].trim();
+
+    // If couldn't find via regex, try common page elements
+    if (!patientName) {
+      // Look for elements that commonly contain patient name on NHI cloud
+      const selectors = [
+        'span[class*="name"]', '.patientName', '#patientName',
+        '.card-header span', '.patient-header span'
+      ];
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el && el.textContent.trim().length >= 2 && el.textContent.trim().length <= 10) {
+          patientName = el.textContent.trim();
+          break;
+        }
+      }
     }
-    console.log("[NHITW Clinic] Patient info - Name:", patientName, "ID:", patientIdFromToken);
+
+    console.log("[NHITW Clinic] DOM parsed - Name:", patientName, "ID:", patientIdFromToken);
   } catch (e) {
-    console.warn("[NHITW Clinic] Token decode failed:", e.message);
+    console.warn("[NHITW Clinic] DOM parse failed:", e.message);
   }
 
   // 保存令牌到內存（不存到 localStorage）
