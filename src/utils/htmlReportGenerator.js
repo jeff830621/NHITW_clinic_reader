@@ -11,6 +11,7 @@ export function generateHtmlReport(patientName, patientId, data) {
   const diagnosisHtml = buildDiagnosisPanel(data);
   const labPivotHtml = buildLabPivotPanel(data.labData?.rObject);
   const westMedHtml = buildWestMedPanel(data.medicationData?.rObject, 100);
+  const otherWestMedHtml = buildOtherWestMedPanel(data.medicationData?.rObject, 100);
   const chineseMedHtml = buildChineseMedPanel(data.chinesemedData?.rObject);
   const imagingHtml = buildImagingPanel(data.imagingData?.rObject);
   const allergyHtml = buildAllergyPanel(data.allergyData?.rObject);
@@ -18,7 +19,7 @@ export function generateHtmlReport(patientName, patientId, data) {
   const dischargeHtml = buildDischargePanel(data.dischargeData?.rObject);
 
   return buildFullHtml(patientName, patientId, dateStr, {
-    diagnosisHtml, labPivotHtml, westMedHtml, chineseMedHtml,
+    diagnosisHtml, labPivotHtml, westMedHtml, otherWestMedHtml, chineseMedHtml,
     imagingHtml, allergyHtml, surgeryHtml, dischargeHtml
   });
 }
@@ -409,6 +410,61 @@ function buildWestMedPanel(items, trackingDays) {
   <div class="tracking-note">${days} 天內</div>`;
 }
 
+// --- Other West Med Panel (meds NOT in focused ATC5 groups) ---
+function buildOtherWestMedPanel(items, trackingDays) {
+  if (!items || items.length === 0) return '<p class="empty">無西藥紀錄</p>';
+  const days = trackingDays || 100;
+
+  // Filter meds within tracking period that DON'T match any ATC5 group
+  const otherMeds = [];
+  for (const m of items) {
+    const date = m.PER_DATE || m.drug_date || '';
+    if (!isWithinDays(date, days)) continue;
+
+    const atcCode = m.ATC_CODE || m.drug_atc7_code || '';
+    const groupName = getAtc5Group(atcCode);
+    if (groupName) continue; // Skip focused meds
+
+    otherMeds.push({
+      name: m.MED_DESC || m.MED_ITEM || m.drug_ename || '',
+      generic: m.GENERIC_NAME || m.drug_ing_name || '',
+      date: parseDate(date),
+      hosp: parseHosp(m.HOSP_NAME || m.hosp),
+      icd: m.ICD_CODE || m.icd_code || '',
+      icdName: m.ICD_NAME || m.icd_cname || '',
+      freq: m.FREQ_DESC || m.drug_fre || '',
+      medDays: m.MED_DAYS || m.day || '',
+      drugLeft: m.DRUG_LEFT || m.drug_left || '',
+    });
+  }
+
+  if (otherMeds.length === 0) return '<p class="empty">無其他西藥紀錄</p>';
+
+  // Group by date + hospital
+  const groups = {};
+  for (const m of otherMeds) {
+    const key = `${m.date}|${m.hosp}`;
+    if (!groups[key]) groups[key] = { date: m.date, hosp: m.hosp, icd: m.icd, icdName: m.icdName, meds: [] };
+    groups[key].meds.push(m);
+  }
+
+  // Sort groups by date descending
+  const sortedGroups = Object.values(groups).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  let html = '';
+  for (const g of sortedGroups) {
+    html += `<div class="med-group-header">${esc(shortDate(g.date))} ${esc(g.hosp)}`;
+    if (g.icd) html += ` <span class="diag-code">${esc(g.icd)}</span>`;
+    html += '</div>';
+    for (const m of g.meds) {
+      const suffix = [m.freq, m.medDays ? m.medDays + '天' : '', m.drugLeft && m.drugLeft !== '0' ? `餘${m.drugLeft}天` : ''].filter(Boolean).join(' ');
+      html += `<div class="med-item">${esc(m.name)} <span class="med-detail">${esc(suffix)}</span></div>`;
+    }
+  }
+  html += `<div class="tracking-note">${days} 天內</div>`;
+  return html;
+}
+
 // --- Chinese Med Panel ---
 function buildChineseMedPanel(items) {
   if (!items || items.length === 0) return '<p class="empty">無中藥紀錄</p>';
@@ -679,6 +735,10 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
     <div class="panel">
       <div class="panel-title" onclick="togglePanel(this)">關注西藥</div>
       <div class="panel-body">${panels.westMedHtml}</div>
+    </div>
+    <div class="panel">
+      <div class="panel-title collapsed" onclick="togglePanel(this)">其他西藥</div>
+      <div class="panel-body collapsed">${panels.otherWestMedHtml}</div>
     </div>
     <div class="panel">
       <div class="panel-title collapsed" onclick="togglePanel(this)">中藥用藥</div>
