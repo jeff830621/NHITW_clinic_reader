@@ -10,13 +10,9 @@ set "INSTALL_DIR=C:\nhitw-host"
 set /p "SHARED_FOLDER=Enter shared folder path (default: C:\nhitw-data): "
 if "!SHARED_FOLDER!"=="" set "SHARED_FOLDER=C:\nhitw-data"
 
-set /p "EXT_ID=Enter Chrome extension ID (from chrome://extensions): "
-if "!EXT_ID!"=="" (
-    echo ERROR: Extension ID is required.
-    echo Install the extension first, then find the ID at chrome://extensions
-    pause
-    exit /b 1
-)
+set "DEFAULT_EXT_ID=kilmdgbkklopaopdfahekedadkmfpfhk"
+set /p "EXT_ID=Enter Chrome extension ID (default: %DEFAULT_EXT_ID%): "
+if "!EXT_ID!"=="" set "EXT_ID=%DEFAULT_EXT_ID%"
 
 echo.
 echo [1/5] Creating install directory: %INSTALL_DIR%

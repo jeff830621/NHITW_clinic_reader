@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxWOLcoOEuEQGvJp7ljCFfMrr4zm7+iTIeawPUraZe43L8ZkVIXFsQWXEdMU2Y3mB9T5PqI/8UtM1CS5U8MtS7QrZTS2LySYj2hxCoqxMQlJPPhcMV/hxOvQrHxy8dqaKPOjVMI+E/0Bm/OUntVByHOdMiweZjdQNnhXrdOvyhLoQROenfXIHwxZmgw1IKTMZTleXwYkGPfXVCTskaKTU/o7TcsXpy1u8QE+us8Ivq54SApm5Nj31B034OMzdz0wQYQOdSEQPVMGMzByGc+rQTITndHvpoC/abCIg/V70FDQPS/oetKS1LP/OntBI9WZRx9CWSoW6Nafs0Qo42PjgFQIDAQAB",
   "name": "更好的健保雲端 2.0",
   "version": "25.1201.3",
   "description": "幫忙醫療人員快速瀏覽「健保雲端系統2.0」資料",
