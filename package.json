@@ -1,26 +1,23 @@
 {
-  "name": "nhitw-cloud-analyzer",
-  "version": "25.1201.3",
-  "description": "NHITW Cloud Analyzer - 更好的健保雲端 2.0",
+  "name": "nhitw-clinic-reader",
+  "version": "26.0508.1",
+  "description": "NHITW 診所讀取器 — 自動匯出健保雲端病患 HTML 報告至共享資料夾",
   "license": "Apache-2.0",
-  "author": "The NHITW Cloud Analyzer Project Authors",
+  "author": "jeff830621",
   "repository": {
     "type": "git",
-    "url": "https://github.com/leescot/NHITW_cloud_analyzer_react_MUI.git"
+    "url": "https://github.com/jeff830621/NHITW_clinic_reader.git"
   },
   "bugs": {
-    "url": "https://github.com/leescot/NHITW_cloud_analyzer_react_MUI/issues"
+    "url": "https://github.com/jeff830621/NHITW_clinic_reader/issues"
   },
-  "homepage": "https://github.com/leescot/NHITW_cloud_analyzer_react_MUI",
+  "homepage": "https://github.com/jeff830621/NHITW_clinic_reader",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "vite build && node scripts/build.js",
     "build:zip": "vite build && node scripts/build.js --zip",
     "build:alpha": "vite build && node scripts/build.js --alpha",
-    "test": "vite build && node scripts/build.js --test && node tests/serve.js",
-    "dev": "vite",
-    "preview": "vite preview",
     "lint": "eslint",
     "lint:fix": "eslint --fix"
   },
@@ -33,7 +30,6 @@
     "esbuild": "^0.25.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-markdown": "^10.1.0",
     "vite": "^6.1.0"
   },
   "devDependencies": {
@@ -44,7 +40,6 @@
     "eslint-plugin-react": "^7.37.4",
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.18",
-    "globals": "^15.14.0",
-    "mime-types": "^3.0.1"
+    "globals": "^15.14.0"
   }
 }

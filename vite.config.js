@@ -8,8 +8,7 @@ export default defineConfig({
     outDir: 'dist',
     rollupOptions: {
       input: {
-        main: resolve(__dirname, 'index.html'),
-        popup: resolve(__dirname, 'src/popup.jsx')
+        popup: resolve(__dirname, 'src/popup.jsx'),
       },
       output: {
         entryFileNames: 'assets/[name].js',

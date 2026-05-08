@@ -1,21 +1,18 @@
 {
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxWOLcoOEuEQGvJp7ljCFfMrr4zm7+iTIeawPUraZe43L8ZkVIXFsQWXEdMU2Y3mB9T5PqI/8UtM1CS5U8MtS7QrZTS2LySYj2hxCoqxMQlJPPhcMV/hxOvQrHxy8dqaKPOjVMI+E/0Bm/OUntVByHOdMiweZjdQNnhXrdOvyhLoQROenfXIHwxZmgw1IKTMZTleXwYkGPfXVCTskaKTU/o7TcsXpy1u8QE+us8Ivq54SApm5Nj31B034OMzdz0wQYQOdSEQPVMGMzByGc+rQTITndHvpoC/abCIg/V70FDQPS/oetKS1LP/OntBI9WZRx9CWSoW6Nafs0Qo42PjgFQIDAQAB",
-  "name": "更好的健保雲端 2.0",
-  "version": "25.1201.3",
-  "description": "幫忙醫療人員快速瀏覽「健保雲端系統2.0」資料",
-  "homepage_url": "https://github.com/leescot/NHITW_cloud_analyzer_react_MUI",
+  "name": "NHITW 診所讀取器",
+  "version": "26.0508.1",
+  "description": "查詢健保雲端時自動產生病患 HTML 報告至共享資料夾，供診所內其他電腦快速檢視。",
+  "homepage_url": "https://github.com/jeff830621/NHITW_clinic_reader",
   "permissions": [
     "webRequest",
     "storage",
-    "scripting",
-    "clipboardWrite",
     "nativeMessaging",
     "alarms"
   ],
   "host_permissions": [
-    "https://medcloud2.nhi.gov.tw/*",
-    "https://drugtw.com/*"
+    "https://medcloud2.nhi.gov.tw/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -44,17 +41,6 @@
         "content.js"
       ],
       "run_at": "document_idle"
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "drug-images.html",
-        "drug-images.js"
-      ],
-      "matches": [
-        "https://medcloud2.nhi.gov.tw/*"
-      ]
     }
   ]
 }

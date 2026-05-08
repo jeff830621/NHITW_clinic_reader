@@ -162,14 +162,11 @@ async function createTest() {
   await bundleContentScript({sourcemap: true});
   await copyExtensionFiles();
 
-  // modify manifest.json
   const hosts = ["http://localhost/*"];
   const { default: manifest } = await import('../public/manifest.json', {with: {type: 'json'}});
   manifest.name += " - 本地端版本";
   manifest.host_permissions.push(...hosts);
   manifest.content_scripts[0].matches.push(...hosts);
-  manifest.web_accessible_resources[0].resources.push("content.js.map");
-  manifest.web_accessible_resources[0].matches.push(...hosts);
   fs.writeFileSync(
     path.resolve(ROOT, 'dist', 'manifest.json'),
     JSON.stringify(manifest, null, 2),
@@ -230,9 +227,9 @@ Options:
     const version = packageJson.version;
 
     if (args.values.zip) {
-      createZip(`NHITW_cloud_analyzer_v${version}_${dateStr}.zip`);
+      createZip(`NHITW_clinic_reader_v${version}_${dateStr}.zip`);
     } else {
-      createZip(`NHITW_cloud_analyzer_v${version}_${dateStr}_ALPHA.zip`);
+      createZip(`NHITW_clinic_reader_v${version}_${dateStr}_ALPHA.zip`);
     }
     return;
   }
