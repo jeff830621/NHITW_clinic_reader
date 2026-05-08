@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxWOLcoOEuEQGvJp7ljCFfMrr4zm7+iTIeawPUraZe43L8ZkVIXFsQWXEdMU2Y3mB9T5PqI/8UtM1CS5U8MtS7QrZTS2LySYj2hxCoqxMQlJPPhcMV/hxOvQrHxy8dqaKPOjVMI+E/0Bm/OUntVByHOdMiweZjdQNnhXrdOvyhLoQROenfXIHwxZmgw1IKTMZTleXwYkGPfXVCTskaKTU/o7TcsXpy1u8QE+us8Ivq54SApm5Nj31B034OMzdz0wQYQOdSEQPVMGMzByGc+rQTITndHvpoC/abCIg/V70FDQPS/oetKS1LP/OntBI9WZRx9CWSoW6Nafs0Qo42PjgFQIDAQAB",
-  "name": "NHITW 診所讀取器",
+  "name": "診間雲端助手",
   "version": "26.0508.1",
   "description": "查詢健保雲端時自動產生病患 HTML 報告至共享資料夾，供診所內其他電腦快速檢視。",
   "homepage_url": "https://github.com/jeff830621/NHITW_clinic_reader",

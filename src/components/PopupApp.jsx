@@ -53,7 +53,7 @@ export default function PopupApp() {
     <Box sx={{ display: "flex", flexDirection: "column" }}>
       <Box sx={{ p: 2, pb: 1 }}>
         <Typography variant="h6" sx={{ mb: 0.5 }}>
-          NHITW 診所讀取器
+          診間雲端助手
         </Typography>
         <Typography variant="caption" color="text.secondary">
           自動匯出健保雲端病患報告 HTML
