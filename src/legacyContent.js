@@ -1084,6 +1084,14 @@ function saveToken(token) {
       if (payload.UserName) patientName = String(payload.UserName).trim();
       if (payload.UserID) patientIdFromToken = String(payload.UserID).trim();
       console.log("[NHITW Clinic] JWT parsed - Name:", patientName, "ID:", patientIdFromToken);
+      // Diagnostic: list payload keys so we can see where the name actually lives
+      // if UserName is empty (HPCCName / UserID2 / patient-summary fields, etc.)
+      if (!patientName) {
+        try {
+          console.log("[NHITW Clinic] JWT payload keys:", Object.keys(payload).join(", "));
+          console.log("[NHITW Clinic] JWT payload (sensitive — debug only):", payload);
+        } catch (_) { /* ignore */ }
+      }
     } else {
       console.warn("[NHITW Clinic] Token is not a 3-part JWT, skipping JWT decode");
     }
