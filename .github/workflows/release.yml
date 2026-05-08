@@ -1,3 +1,4 @@
+# Trigger workflow registration after repo import
 name: Create Release
 
 on:
