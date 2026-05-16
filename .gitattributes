@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Windows batch files: preserve bytes exactly (install.bat is CP950/Big5
+# so CMD on Traditional Chinese Windows reads the Chinese prompts without
+# 亂碼). No LF/CRLF normalization, no encoding conversion.
+*.bat -text
