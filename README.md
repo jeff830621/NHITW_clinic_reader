@@ -40,11 +40,26 @@
 
 ### 2. 安裝 Native Messaging Host
 
-1. 找到解壓後的 `native-host` 資料夾
-2. 執行 `install.bat`
-3. 輸入共享資料夾路徑（例如 `\\SERVER\shared\nhitw-data`）
-4. 輸入擴充套件 ID
-5. 重新啟動 Chrome
+#### 多台電腦快速部署（建議）
+
+如果要裝多台同設定的電腦：
+
+1. 解壓 ZIP 後，先用記事本打開 `native-host\install.bat`
+2. 找到 `DEPLOY CONFIG` 區塊，修改一行：
+   ```
+   set "DEFAULT_SHARED_FOLDER=\\SERVER\shared\nhitw-data"
+   ```
+   改成你的共享資料夾路徑
+3. 存檔。整個 `native-host` 資料夾就成了你的部署包
+4. 在每台電腦上：把整個資料夾複製過去 → 雙擊 `install.bat` → 一路按 Enter → 完成
+
+每台電腦只要重啟 Chrome / Edge 即可生效。擴充套件 ID 已透過 manifest key 鎖定，不會隨重裝改變，所以不需要每台都重新填 ID。
+
+#### 單台手動安裝
+
+1. 雙擊 `native-host\install.bat`
+2. 輸入共享資料夾路徑（或按 Enter 用預設）
+3. 確認後自動完成註冊
 
 ### 3. 啟用功能
 
