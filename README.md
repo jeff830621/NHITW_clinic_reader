@@ -45,11 +45,11 @@
 如果要裝多台同設定的電腦：
 
 1. 解壓 ZIP 後，先用記事本打開 `native-host\install.bat`
-2. 找到 `DEPLOY CONFIG` 區塊，修改一行：
+2. 找到 `DEPLOY CONFIG` 區塊，這一行：
    ```
-   set "DEFAULT_SHARED_FOLDER=\\SERVER\shared\nhitw-data"
+   set "DEFAULT_SHARED_FOLDER=\\kt-server\kthis\Chart"
    ```
-   改成你的共享資料夾路徑
+   如果你的共享資料夾路徑不同，改成你的路徑（否則不用動）
 3. 存檔。整個 `native-host` 資料夾就成了你的部署包
 4. 在每台電腦上：把整個資料夾複製過去 → 雙擊 `install.bat` → 一路按 Enter → 完成
 
