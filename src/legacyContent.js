@@ -1098,27 +1098,35 @@ function saveToken(token) {
 
   if (!patientName || !patientIdFromToken) {
     try {
-      // Read all visible text and parse: 身分證號：XXXXXXXXXX 姓名 民 YY/MM/DD 性別
-      const bodyText = document.body.innerText || '';
+      // Preferred selectors on the NHI cloud page:
+      //   <div class="member-info">
+      //     <span class="idno">身分證號：F222***198</span>
+      //     <span class="name">李敏華</span>
+      //     ...
+      if (!patientName) {
+        const nameEl = document.querySelector('.member-info .name');
+        if (nameEl && nameEl.textContent.trim()) {
+          patientName = nameEl.textContent.trim();
+        }
+      }
       if (!patientIdFromToken) {
-        const idMatch = bodyText.match(/身分證[號]?[：:]\s*([A-Z][\d*]{9})/);
-        if (idMatch) patientIdFromToken = idMatch[1];
+        const idEl = document.querySelector('.member-info .idno');
+        if (idEl) {
+          const m = idEl.textContent.match(/([A-Z][\d*]{9})/);
+          if (m) patientIdFromToken = m[1];
+        }
       }
-      if (!patientName) {
-        const nameMatch = bodyText.match(/身分證[號]?[：:]\s*[A-Z][\d*]{9}\s+([^\s民]+)/);
-        if (nameMatch) patientName = nameMatch[1].trim();
-      }
-      if (!patientName) {
-        const selectors = [
-          'span[class*="name"]', '.patientName', '#patientName',
-          '.card-header span', '.patient-header span'
-        ];
-        for (const sel of selectors) {
-          const el = document.querySelector(sel);
-          if (el && el.textContent.trim().length >= 2 && el.textContent.trim().length <= 10) {
-            patientName = el.textContent.trim();
-            break;
-          }
+
+      // Fallback: parse bodyText regex (older layout)
+      if (!patientName || !patientIdFromToken) {
+        const bodyText = document.body.innerText || '';
+        if (!patientIdFromToken) {
+          const idMatch = bodyText.match(/身分證[號]?[：:]\s*([A-Z][\d*]{9})/);
+          if (idMatch) patientIdFromToken = idMatch[1];
+        }
+        if (!patientName) {
+          const nameMatch = bodyText.match(/身分證[號]?[：:]\s*[A-Z][\d*]{9}\s+([^\s民]+)/);
+          if (nameMatch) patientName = nameMatch[1].trim();
         }
       }
       console.log("[NHITW Clinic] DOM fallback - Name:", patientName, "ID:", patientIdFromToken);
