@@ -26,9 +26,16 @@
 
 ### 1. 載入擴充套件
 
-1. [下載 ZIP](https://github.com/jeff830621/NHITW_clinic_reader/archive/refs/heads/feat/clinic-reader.zip) 並解壓縮
+**下載已 build 好的擴充套件 ZIP：**
+
+- [最新版（直接下載）](https://github.com/jeff830621/NHITW_clinic_reader/raw/release/releases/NHITW_clinic_reader_latest.zip)
+- [v25.1201.3 (2026-05-16)](https://github.com/jeff830621/NHITW_clinic_reader/raw/release/releases/NHITW_cloud_analyzer_v25.1201.3-20260516.zip)
+
+下載後步驟：
+
+1. 解壓縮 ZIP
 2. 開啟 Chrome → `chrome://extensions` → 開發者模式
-3. 點擊「載入未封裝項目」→ 選擇解壓後的 `dist/` 資料夾
+3. 點擊「載入未封裝項目」→ 選擇解壓後的資料夾
 4. 記下擴充套件 ID
 
 ### 2. 安裝 Native Messaging Host
