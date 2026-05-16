@@ -17,10 +17,11 @@ export function generateHtmlReport(patientName, patientId, data) {
   const allergyHtml = buildAllergyPanel(data.allergyData?.rObject);
   const surgeryHtml = buildSurgeryPanel(data.surgeryData?.rObject);
   const dischargeHtml = buildDischargePanel(data.dischargeData?.rObject);
+  const acuBadgeHtml = buildAcupunctureBadge(data);
 
   return buildFullHtml(patientName, patientId, dateStr, {
     diagnosisHtml, labPivotHtml, westMedHtml, otherWestMedHtml, chineseMedHtml,
-    imagingHtml, allergyHtml, surgeryHtml, dischargeHtml
+    imagingHtml, allergyHtml, surgeryHtml, dischargeHtml, acuBadgeHtml
   });
 }
 
@@ -282,6 +283,144 @@ function checkAbnormal(value, reference) {
   const gtMatch = reference.match(/[>≧]\s*([\d.]+)/);
   if (gtMatch) return num < parseFloat(gtMatch[1]);
   return false;
+}
+
+// --- Acupuncture complexity indication (附表 4.4.2 / 4.4.3 / 4.4.4) ---
+// 中度複雜性針灸適應症 (附表 4.4.2)
+const ACU_MODERATE_PREFIXES = [
+  'G43','G50','G51','G52','G54','G61','G62','G63','G65','G90',
+  'M13.0','M15','M20','M21','M66',
+  'H02','H04','H05','H10','H20','H25','H26','H52'
+];
+
+// 特殊疾病適應症 (附表 4.4.3) — 與「一般疾病」併存可申報中度；與中度併存可升級高度
+const ACU_SPECIAL_PREFIXES = [
+  'A15','B01','B02','B05','B06','B20','B97.2','B97.3',
+  'D65','D66','D67','D68','D69','D70','D82','D83','D84',
+  'E04','E05','E06','E10','E11','E13','E15','E28',
+  'F90','F95',
+  'I20','I21','I22','I23','I24','I25','I26','I27','I28',
+  'I42','I50','I71','I73','I74','I80','I82','I89',
+  'J44','J45','J93','J96','J98',
+  'K72','K74','K80',
+  'L10','L11','L12','L40','L51','L52','L89','L94','L97',
+  'M33','M34','M35',
+  'N18','N19',
+  'R64'
+];
+
+// 高度複雜性針灸適應症 (附表 4.4.4) — 含使用者補列 I69 (腦中風後遺症)
+const ACU_HIGH_PREFIXES = [
+  'A80',
+  'D32','D33','D48','D49',
+  'F02','F03','F04','F05','F09',
+  'F20','F21','F22','F23','F24','F25',
+  'F30','F31','F32','F33','F34','F35','F36','F37','F38','F39',
+  'F80','F82','F84',
+  'G11','G12','G20','G21','G35','G36','G40','G45','G46',
+  'G70','G71','G80','G81','G82','G83','G91','G93','G94',
+  'H30','H31','H33','H34','H35','H36','H40','H42','H43',
+  'H46','H47','H49','H50','H51','H53','H54','H55',
+  'I60','I61','I62','I63','I65','I66','I67',
+  'I69', // 補列 — 腦中風後遺症
+  'M45','M62.3','M99',
+  'P91',
+  'Q11','Q12','Q13','Q14','Q15',
+  'S01.9','S04','S06.3','S06.4','S06.5','S06.6',
+  'S14','S22','S24','S32','S34',
+  'S44','S54','S64','S74','S84','S94'
+];
+
+function codeMatchesPrefix(code, prefix) {
+  if (!code || !prefix) return false;
+  if (code === prefix) return true;
+  return code.startsWith(prefix + '.');
+}
+
+// C00–C96 惡性腫瘤 (高度)
+function isCancerCode(code) {
+  const m = code && code.match(/^C(\d{2})/);
+  if (!m) return false;
+  const n = parseInt(m[1], 10);
+  return n >= 0 && n <= 96;
+}
+
+// O10–O16, O20–O29 妊娠 (特殊)
+function isPregnancyCode(code) {
+  const m = code && code.match(/^O(\d{2})/);
+  if (!m) return false;
+  const n = parseInt(m[1], 10);
+  return (n >= 10 && n <= 16) || (n >= 20 && n <= 29);
+}
+
+function collectAllIcdCodes(data) {
+  const codes = new Set();
+  const pushFrom = (items, field) => {
+    if (!items) return;
+    for (const m of items) {
+      const c = m[field];
+      if (c) codes.add(String(c).trim());
+    }
+  };
+  pushFrom(data.medicationData?.rObject, 'ICD_CODE');
+  pushFrom(data.medicationData?.rObject, 'icd_code');
+  pushFrom(data.chinesemedData?.rObject, 'icd_code');
+  pushFrom(data.dischargeData?.rObject, 'icd_code');
+  pushFrom(data.surgeryData?.rObject, 'icd_code');
+  return Array.from(codes).filter(Boolean);
+}
+
+function classifyAcupunctureCodes(codes) {
+  const high = new Set();
+  const moderate = new Set();
+  const special = new Set();
+  for (const code of codes) {
+    if (isCancerCode(code) || ACU_HIGH_PREFIXES.some(p => codeMatchesPrefix(code, p))) {
+      high.add(code);
+    }
+    if (ACU_MODERATE_PREFIXES.some(p => codeMatchesPrefix(code, p))) {
+      moderate.add(code);
+    }
+    if (isPregnancyCode(code) || ACU_SPECIAL_PREFIXES.some(p => codeMatchesPrefix(code, p))) {
+      special.add(code);
+    }
+  }
+  return { high: [...high], moderate: [...moderate], special: [...special] };
+}
+
+function getAcupunctureLevel(matches) {
+  // 高度 = 命中 4.4.4 OR (命中 4.4.2 中度 + 命中 4.4.3 特殊)
+  if (matches.high.length > 0) return 'high';
+  if (matches.moderate.length > 0 && matches.special.length > 0) return 'high';
+  // 中度 = 命中 4.4.2 OR 命中 4.4.3 (與一般疾病併存)
+  if (matches.moderate.length > 0 || matches.special.length > 0) return 'moderate';
+  return null;
+}
+
+function buildAcupunctureBadge(data) {
+  const codes = collectAllIcdCodes(data);
+  const matches = classifyAcupunctureCodes(codes);
+  const level = getAcupunctureLevel(matches);
+  if (!level) return '';
+
+  let label, hitCodes;
+  if (level === 'high') {
+    label = '⚡ 高度複雜針灸';
+    // Reason: codes that triggered high — either direct 4.4.4 hits, or moderate∩special pair
+    if (matches.high.length > 0) {
+      hitCodes = matches.high;
+    } else {
+      hitCodes = [...matches.moderate.map(c => c + '(中)'), ...matches.special.map(c => c + '(特)')];
+    }
+  } else {
+    label = '💉 中度複雜針灸';
+    hitCodes = [...matches.moderate, ...matches.special.map(c => c + '(特)')];
+  }
+
+  const shown = hitCodes.slice(0, 12).join(', ');
+  const more = hitCodes.length > 12 ? `… (+${hitCodes.length - 12})` : '';
+  const tooltip = `符合 ICD: ${shown}${more}`;
+  return `<span class="acu-badge acu-${level}" title="${esc(tooltip)}">${label}</span>`;
 }
 
 // --- ATC5 Classification (matches extension's medicationGroups.js) ---
@@ -632,6 +771,10 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .header .actions a { color:#fff; background:rgba(255,255,255,0.2); padding:4px 12px; border-radius:4px; text-decoration:none; font-size:12px; cursor:pointer; }
 .header .actions a:hover { background:rgba(255,255,255,0.35); }
 
+.acu-badge { display:inline-block; margin-left:10px; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; vertical-align:middle; cursor:help; }
+.acu-badge.acu-high { background:#d32f2f; color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,0.3); }
+.acu-badge.acu-moderate { background:#f57c00; color:#fff; }
+
 .layout { display:grid; grid-template-columns:1fr 1.5fr 1fr; gap:12px; padding:12px; min-height:calc(100vh - 60px); }
 
 .column { display:flex; flex-direction:column; gap:10px; }
@@ -715,7 +858,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 
 <div class="header">
   <div>
-    <h1>${esc(name)}</h1>
+    <h1>${esc(name)}${panels.acuBadgeHtml || ''}</h1>
     <div class="meta">${esc(id)} ｜ ${esc(dateStr)}</div>
   </div>
   <div class="actions">
