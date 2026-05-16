@@ -1,0 +1,9 @@
+{
+  "name": "com.nhitw.host",
+  "description": "NHITW Clinic Reader — Shared Folder Bridge",
+  "path": "C:\\nhitw-host\\nhitw_host_launcher.bat",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://EXTENSION_ID_PLACEHOLDER/"
+  ]
+}

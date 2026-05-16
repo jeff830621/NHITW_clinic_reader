@@ -111,6 +111,13 @@ function copyExtensionFiles() {
       }
     }
 
+    // Copy native-host folder so the release zip includes install.bat etc.
+    const nativeHostSrc = path.resolve(ROOT, 'native-host');
+    const nativeHostDest = path.resolve(ROOT, 'dist', 'native-host');
+    if (fs.existsSync(nativeHostSrc)) {
+      copyFolderSync(nativeHostSrc, nativeHostDest);
+    }
+
     console.log('Extension files copied successfully');
   } catch (err) {
     console.error('Error copying extension files:', err);
