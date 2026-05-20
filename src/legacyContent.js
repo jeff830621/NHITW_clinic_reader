@@ -417,6 +417,11 @@ async function extractUserInfo() {
         // 更新快取
         cachedUserInfo = `patient_${userId}`;
         lastUserInfoExtractTime = currentTime;
+        // The fetch/XHR interceptors trigger saveToken() lazily, but they
+        // can miss the first request (timing) or skip when hasExtractedToken
+        // is already set. Push the token to background here so it always
+        // gets the patient name (UserName), not just the ID.
+        if (!hasExtractedToken) saveToken(token);
         return cachedUserInfo; // 返回 patient_${健保卡號}
       }
       console.log("No UserID in token, using token prefix");
