@@ -27,6 +27,25 @@ let cachedUserInfo = null;
 let lastUserInfoExtractTime = 0;
 const USER_INFO_CACHE_DURATION = 5000; // 5秒內不重複提取令牌
 
+// JWT payloads use base64url (with - and _) and contain UTF-8 (Chinese names).
+// atob() alone fails on the URL-safe alphabet and corrupts multi-byte chars.
+function decodeJwtPayload(rawToken) {
+  if (!rawToken) return null;
+  const token = rawToken.startsWith("Bearer ") ? rawToken.slice(7) : rawToken;
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+  while (b64.length % 4) b64 += "=";
+  const binary = atob(b64);
+  const jsonPayload = decodeURIComponent(
+    binary
+      .split("")
+      .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+      .join("")
+  );
+  return JSON.parse(jsonPayload);
+}
+
 let isMonitoring = false;
 let lastSuccessfulRequestHeaders = null;
 let hasExtractedToken = false;
@@ -391,8 +410,8 @@ async function extractUserInfo() {
   try {
     const token = extractAuthorizationToken();
     if (token) {
-      const payload = JSON.parse(atob(token.split(".")[1])); // 解碼 JWT payload
-      const userId = payload.UserID; // 提取 UserID（健保卡號）
+      const payload = decodeJwtPayload(token);
+      const userId = payload && payload.UserID; // 提取 UserID（健保卡號）
       if (userId) {
         // console.log("Extracted UserID from token:", userId);
         // 更新快取
@@ -1063,48 +1082,49 @@ function saveToken(token) {
   hasExtractedToken = true;
   console.log("Successfully extracted token:", token.substring(0, 20) + "...");
 
-  // Extract patient name directly from the page DOM
-  // The NHI cloud page header shows: 身分證號：A221***433 章玉華 民 55/06/22 女
+  // Extract patient name and ID.
+  // Primary source: the JWT payload (UserName / UserID), which has the
+  // unmasked ID. Fallback: sessionStorage JWT, then page DOM text.
   let patientName = '';
   let patientIdFromToken = '';
   try {
-    // Try reading from the page header text
-    const headerEl = document.querySelector('.patient-info, .user-info, [class*="patient"], [class*="header"]');
-    if (headerEl) {
-      const text = headerEl.textContent || '';
-      console.log("[NHITW Clinic] Header text:", text.substring(0, 100));
-    }
+    // Method 1: decode the Authorization JWT just captured.
+    let payload = null;
+    try { payload = decodeJwtPayload(token); } catch (_) { payload = null; }
 
-    // Read all visible text in the top area and parse patient info
-    const bodyText = document.body.innerText || '';
-    // Pattern: 身分證號：XXXXXXXXXX 姓名 民 YY/MM/DD 性別
-    const idMatch = bodyText.match(/身分證[號]?[：:]\s*([A-Z]\d{9})/);
-    if (idMatch) patientIdFromToken = idMatch[1];
-
-    // The name is typically right after the ID pattern, or nearby
-    // Pattern: ID followed by name (Chinese characters) followed by 民
-    const nameMatch = bodyText.match(/身分證[號]?[：:]\s*[A-Z][\d*]{9}\s+([^\s民]+)/);
-    if (nameMatch) patientName = nameMatch[1].trim();
-
-    // If couldn't find via regex, try common page elements
-    if (!patientName) {
-      // Look for elements that commonly contain patient name on NHI cloud
-      const selectors = [
-        'span[class*="name"]', '.patientName', '#patientName',
-        '.card-header span', '.patient-header span'
-      ];
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el && el.textContent.trim().length >= 2 && el.textContent.trim().length <= 10) {
-          patientName = el.textContent.trim();
-          break;
-        }
+    // Method 2: fall back to sessionStorage JWT (same source as extension UI).
+    if (!payload || (!payload.UserName && !payload.UserID)) {
+      const tokenNames = ['jwt_token', 'token', 'access_token', 'auth_token'];
+      for (const name of tokenNames) {
+        const stored = sessionStorage.getItem(name);
+        if (!stored) continue;
+        try {
+          const p = decodeJwtPayload(stored);
+          if (p && (p.UserName || p.UserID)) { payload = p; break; }
+        } catch (_) { /* try next */ }
       }
     }
 
-    console.log("[NHITW Clinic] DOM parsed - Name:", patientName, "ID:", patientIdFromToken);
+    if (payload) {
+      patientName = payload.UserName || '';
+      patientIdFromToken = payload.UserID || '';
+    }
+
+    // Method 3: DOM fallback if JWT had nothing.
+    if (!patientName) {
+      const bodyText = document.body.innerText || '';
+      // ID may be masked on screen (e.g. A221***433); accept asterisks too.
+      if (!patientIdFromToken) {
+        const idMatch = bodyText.match(/身分證[號]?[：:]\s*([A-Z][\d*]{9})/);
+        if (idMatch) patientIdFromToken = idMatch[1];
+      }
+      const nameMatch = bodyText.match(/身分證[號]?[：:]\s*[A-Z][\d*]{9}\s+([^\s民]+)/);
+      if (nameMatch) patientName = nameMatch[1].trim();
+    }
+
+    console.log("[NHITW Clinic] Patient info - Name:", patientName, "ID:", patientIdFromToken);
   } catch (e) {
-    console.warn("[NHITW Clinic] DOM parse failed:", e.message);
+    console.warn("[NHITW Clinic] Patient info extraction failed:", e.message);
   }
 
   // 保存令牌到內存（不存到 localStorage）
@@ -1253,17 +1273,11 @@ function extractAuthorizationToken() {
 // 驗證JWT令牌是否有效（基本檢查）
 function validateToken(token) {
   try {
-    // 移除Bearer前綴
-    const jwtToken = token.startsWith("Bearer ") ? token.substring(7) : token;
-
-    // 拆分令牌以獲取payload部分
-    const parts = jwtToken.split(".");
-    if (parts.length !== 3) {
+    // 解碼payload部分（base64url + UTF-8）
+    const payload = decodeJwtPayload(token);
+    if (!payload) {
       return false;
     }
-
-    // 解碼payload部分（base64）
-    const payload = JSON.parse(atob(parts[1]));
 
     // 檢查過期時間
     if (payload.exp) {
