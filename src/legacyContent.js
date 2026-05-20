@@ -391,7 +391,13 @@ async function extractUserInfo() {
   try {
     const token = extractAuthorizationToken();
     if (token) {
-      const payload = JSON.parse(atob(token.split(".")[1])); // 解碼 JWT payload
+      // NHI JWT uses base64url without padding — bare atob() throws on it
+      const rawTok = token.startsWith("Bearer ") ? token.slice(7) : token;
+      let b64 = rawTok.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      while (b64.length % 4) b64 += "=";
+      const payload = JSON.parse(decodeURIComponent(
+        atob(b64).split("").map(c => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2)).join("")
+      ));
       const userId = payload.UserID; // 提取 UserID（健保卡號）
       if (userId) {
         // console.log("Extracted UserID from token:", userId);
@@ -1882,6 +1888,37 @@ function injectFloatingIcon() {
 
 // 監聽來自背景腳本的消息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === "getPatientInfo") {
+    // Read sessionStorage JWT and decode — same source the popup uses, so if
+    // popup shows the name this will too. Called by background.js right
+    // before generating the HTML report filename.
+    let name = '';
+    let id = '';
+    try {
+      const tokenNames = ['jwt_token', 'token', 'access_token', 'auth_token'];
+      let raw = null;
+      for (const n of tokenNames) {
+        const v = sessionStorage.getItem(n);
+        if (v) { raw = v.startsWith('Bearer ') ? v.slice(7) : v; break; }
+      }
+      if (raw && raw.split('.').length === 3) {
+        let b64 = raw.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        while (b64.length % 4) b64 += '=';
+        const json = decodeURIComponent(
+          atob(b64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+        );
+        const payload = JSON.parse(json);
+        name = payload.UserName || '';
+        id = payload.UserID || '';
+      }
+    } catch (e) {
+      console.warn('[NHITW Clinic] getPatientInfo decode failed:', e.message);
+    }
+    console.log('[NHITW Clinic] getPatientInfo →', { name, id });
+    sendResponse({ name, id });
+    return true;
+  }
+
   if (message.action === "apiCallDetected") {
     // 只在debug模式下顯示詳細API呼叫資訊
     // console.log("Background script detected API call:", message.url);

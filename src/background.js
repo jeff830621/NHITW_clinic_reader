@@ -66,7 +66,22 @@ async function autoExportToSharedFolder() {
     const sharedFolder = settings.sharedFolder || {};
     if (!sharedFolder.enabled) return;
 
-    // Use patient name and ID pre-extracted by content script (sent via saveToken)
+    // Ask content script for fresh patient info right now — sessionStorage
+    // JWT is the same source the popup UI uses, so if the popup can show the
+    // name, this call will return it. This bypasses any earlier saveToken
+    // race or empty-string snafu.
+    try {
+      const tabs = await chrome.tabs.query({ url: 'https://medcloud2.nhi.gov.tw/*' });
+      if (tabs.length > 0) {
+        const fresh = await chrome.tabs.sendMessage(tabs[0].id, { action: 'getPatientInfo' });
+        if (fresh?.name) currentSessionData.patientName = fresh.name;
+        if (fresh?.id) currentSessionData.patientIdFromToken = fresh.id;
+        console.log('[NHITW Clinic] Fresh patient info from tab:', fresh);
+      }
+    } catch (e) {
+      console.warn('[NHITW Clinic] Failed to get fresh patient info:', e.message);
+    }
+
     let patientId = currentSessionData.patientIdFromToken;
     let patientName = currentSessionData.patientName;
 
