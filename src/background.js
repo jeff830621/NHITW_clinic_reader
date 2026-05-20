@@ -21,6 +21,18 @@ let currentSessionData = {
   patientIdFromToken: null
 };
 
+// Patient identity (name, ID, token) is set by saveToken and should survive
+// session-data clears. Otherwise a saveToken that arrives *before* the
+// content-script's clearSessionData/userSessionChanged message gets wiped,
+// and the HTML report falls back to ID-only filename.
+const IDENTITY_KEYS = new Set(['token', 'currentUserSession', 'patientName', 'patientIdFromToken']);
+
+function clearMedicalData() {
+  for (const key of Object.keys(currentSessionData)) {
+    if (!IDENTITY_KEYS.has(key)) currentSessionData[key] = null;
+  }
+}
+
 /**
  * Auto-export patient data to shared folder via Native Messaging Host.
  * Debounced: waits for all data types to arrive before generating HTML.
@@ -167,10 +179,7 @@ const ACTION_HANDLERS = new Map([
   
   ['userSessionChanged', (message, sender, sendResponse) => {
     // console.log("User session changed, resetting temporary data");
-    // 重置當前會話數據
-    Object.keys(currentSessionData).forEach(key => {
-      currentSessionData[key] = null;
-    });
+    clearMedicalData();
     currentSessionData.currentUserSession = message.userSession;
 
     // 從 storage 中移除數據
@@ -184,10 +193,7 @@ const ACTION_HANDLERS = new Map([
   
   ['clearSessionData', (message, sender, sendResponse) => {
     // console.log("Clearing session data");
-    // 重置當前會話數據
-    Object.keys(currentSessionData).forEach(key => {
-      currentSessionData[key] = null;
-    });
+    clearMedicalData();
     sendResponse({ status: "cleared" });
   }],
   
@@ -341,10 +347,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 檢查是否有會話變更
   if (message.userSession && message.userSession !== currentSessionData.currentUserSession) {
     // console.log("User session changed, resetting temporary data");
-    // 重置當前會話數據
-    Object.keys(currentSessionData).forEach(key => {
-      currentSessionData[key] = null;
-    });
+    clearMedicalData();
     currentSessionData.currentUserSession = message.userSession;
   }
 
