@@ -110,13 +110,26 @@ const API_ENDPOINTS = {
   labdata: "medcloud2.nhi.gov.tw/imu/api/imue0060/imue0060s02/get-data"
 };
 
+// Safely deliver a message to a tab's content script.
+// Swallows "Receiving end does not exist" when the content script
+// is not yet loaded or the request did not originate from a tab.
+function sendTabMessageSafe(tabId, payload) {
+  if (typeof tabId !== 'number' || tabId < 0) return;
+  try {
+    chrome.tabs.sendMessage(tabId, payload, () => {
+      void chrome.runtime.lastError;
+    });
+  } catch (_) {
+    // ignore — tab gone or extension context invalidated
+  }
+}
+
 // Add listeners for all API endpoints
 Object.entries(API_ENDPOINTS).forEach(([type, endpoint]) => {
   chrome.webRequest.onBeforeRequest.addListener(
     function(details) {
       if (details.method === "GET" && details.url.includes(endpoint)) {
-        // console.log(`Detected ${type} API request:`, details.url);
-        chrome.tabs.sendMessage(details.tabId, {
+        sendTabMessageSafe(details.tabId, {
           action: "apiCallDetected",
           url: details.url,
           type: type
@@ -131,8 +144,7 @@ Object.entries(API_ENDPOINTS).forEach(([type, endpoint]) => {
   chrome.webRequest.onCompleted.addListener(
     function(details) {
       if (details.method === "GET" && details.url.includes(endpoint)) {
-        // console.log(`Completed ${type} API request:`, details.url);
-        chrome.tabs.sendMessage(details.tabId, {
+        sendTabMessageSafe(details.tabId, {
           action: "apiCallCompleted",
           url: details.url,
           statusCode: details.statusCode,
