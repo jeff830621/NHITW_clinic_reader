@@ -334,13 +334,19 @@ const ACU_HIGH_PREFIXES = [
 
 function codeMatchesPrefix(code, prefix) {
   if (!code || !prefix) return false;
-  if (code === prefix) return true;
-  return code.startsWith(prefix + '.');
+  // ICD-10-CM codes vary: "M62.3" vs "M62.30" vs "M6230"; some sources drop
+  // dots entirely. Normalize both sides by removing dots and upper-casing.
+  // All prefixes we use are ≥3 chars (real ICD category), so plain startsWith
+  // can't false-match too short prefixes.
+  const c = String(code).replace(/\./g, '').toUpperCase().trim();
+  const p = String(prefix).replace(/\./g, '').toUpperCase().trim();
+  if (!c || !p) return false;
+  return c === p || c.startsWith(p);
 }
 
 // C00–C96 惡性腫瘤 (高度)
 function isCancerCode(code) {
-  const m = code && code.match(/^C(\d{2})/);
+  const m = code && String(code).toUpperCase().replace(/\./g, '').match(/^C(\d{2})/);
   if (!m) return false;
   const n = parseInt(m[1], 10);
   return n >= 0 && n <= 96;
@@ -348,7 +354,7 @@ function isCancerCode(code) {
 
 // O10–O16, O20–O29 妊娠 (特殊)
 function isPregnancyCode(code) {
-  const m = code && code.match(/^O(\d{2})/);
+  const m = code && String(code).toUpperCase().replace(/\./g, '').match(/^O(\d{2})/);
   if (!m) return false;
   const n = parseInt(m[1], 10);
   return (n >= 10 && n <= 16) || (n >= 20 && n <= 29);
@@ -356,19 +362,35 @@ function isPregnancyCode(code) {
 
 function collectAllIcdCodes(data) {
   const codes = new Set();
-  const pushFrom = (items, field) => {
-    if (!items) return;
+  // ICD code field aliases seen across NHI APIs (uppercase + lowercase + main +
+  // secondary diagnosis). Sweep every record across every dataset against every
+  // candidate field name so we never miss codes due to schema variance.
+  const ICD_FIELDS = [
+    'ICD_CODE', 'icd_code', 'ICD_CODE_1', 'icd_code_1',
+    'ICD_CODE_2', 'icd_code_2', 'ICD_CODE_3', 'icd_code_3',
+    'ICD_CODE_4', 'icd_code_4', 'ICD_CODE_5', 'icd_code_5',
+    'icdCode', 'icdcode', 'ICD10_CODE', 'icd10_code',
+    'main_icd', 'sub_icd', 'MAIN_ICD', 'SUB_ICD',
+    'DIAG_CODE', 'diag_code'
+  ];
+  const sweep = (items) => {
+    if (!Array.isArray(items)) return;
     for (const m of items) {
-      const c = m[field];
-      if (c) codes.add(String(c).trim());
+      if (!m || typeof m !== 'object') continue;
+      for (const f of ICD_FIELDS) {
+        const v = m[f];
+        if (v) codes.add(String(v).trim());
+      }
     }
   };
-  pushFrom(data.medicationData?.rObject, 'ICD_CODE');
-  pushFrom(data.medicationData?.rObject, 'icd_code');
-  pushFrom(data.chinesemedData?.rObject, 'icd_code');
-  pushFrom(data.dischargeData?.rObject, 'icd_code');
-  pushFrom(data.surgeryData?.rObject, 'icd_code');
-  return Array.from(codes).filter(Boolean);
+  sweep(data.medicationData?.rObject);
+  sweep(data.chinesemedData?.rObject);
+  sweep(data.dischargeData?.rObject);
+  sweep(data.surgeryData?.rObject);
+  sweep(data.patientSummaryData?.rObject);
+  const arr = Array.from(codes).filter(Boolean);
+  console.log('[NHITW Clinic] Collected ICD codes for classification:', arr);
+  return arr;
 }
 
 function classifyAcupunctureCodes(codes) {
@@ -402,6 +424,7 @@ function buildAcupunctureBadge(data) {
   const codes = collectAllIcdCodes(data);
   const matches = classifyAcupunctureCodes(codes);
   const level = getAcupunctureLevel(matches);
+  console.log('[NHITW Clinic] Acupuncture matches:', matches, 'level:', level);
   if (!level) return '';
 
   let label, hitCodes;
@@ -501,6 +524,7 @@ function detectCancerCarePlan(codes) {
 function buildCancerCareBadge(data) {
   const codes = collectAllIcdCodes(data);
   const detected = detectCancerCarePlan(codes);
+  console.log('[NHITW Clinic] Cancer-care detected:', detected);
   if (detected.length === 0) return '';
 
   const names = detected.map(d => d.name).join('、');
