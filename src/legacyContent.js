@@ -1087,44 +1087,62 @@ function saveToken(token) {
   hasExtractedToken = true;
   console.log("Successfully extracted token:", token.substring(0, 20) + "...");
 
-  // Extract patient name and ID.
-  // Primary source: the JWT payload (UserName / UserID), which has the
-  // unmasked ID. Fallback: sessionStorage JWT, then page DOM text.
+  // Extract patient name and ID. Try every source we know about and pick
+  // the first non-empty UserName / UserID — different NHI flows put the
+  // patient info in different places, so we can't assume any one wins.
   let patientName = '';
   let patientIdFromToken = '';
   try {
-    // Method 1: decode the Authorization JWT just captured.
-    let payload = null;
-    try { payload = decodeJwtPayload(token); } catch (_) { payload = null; }
+    const payloads = [];
+    const seen = new Set();
 
-    // Method 2: fall back to sessionStorage JWT (same source as extension UI).
-    if (!payload || (!payload.UserName && !payload.UserID)) {
-      const tokenNames = ['jwt_token', 'token', 'access_token', 'auth_token'];
-      for (const name of tokenNames) {
-        const stored = sessionStorage.getItem(name);
-        if (!stored) continue;
-        try {
-          const p = decodeJwtPayload(stored);
-          if (p && (p.UserName || p.UserID)) { payload = p; break; }
-        } catch (_) { /* try next */ }
-      }
+    function tryPush(label, rawToken) {
+      if (!rawToken || seen.has(rawToken)) return;
+      seen.add(rawToken);
+      try {
+        const p = decodeJwtPayload(rawToken);
+        if (p) {
+          payloads.push({ label, payload: p });
+          console.log(`[NHITW Clinic] JWT ${label} keys:`, Object.keys(p).join(','));
+        }
+      } catch (_) { /* skip bad payload */ }
     }
 
-    if (payload) {
-      patientName = payload.UserName || '';
-      patientIdFromToken = payload.UserID || '';
+    // Source 1: the Authorization token just captured
+    tryPush('auth', token);
+
+    // Source 2: sessionStorage JWTs (same source as extension UI)
+    for (const name of ['jwt_token', 'token', 'access_token', 'auth_token']) {
+      tryPush(`sessionStorage[${name}]`, sessionStorage.getItem(name));
     }
 
-    // Method 3: DOM fallback if JWT had nothing.
-    if (!patientName) {
+    // Pick first payload that has each field
+    for (const { payload } of payloads) {
+      if (!patientName && payload.UserName) patientName = payload.UserName;
+      if (!patientIdFromToken && payload.UserID) patientIdFromToken = payload.UserID;
+      if (patientName && patientIdFromToken) break;
+    }
+
+    // Method 3: DOM fallback. Patient header looks like
+    // 身分證號：A221***433 章玉華 民 55/06/22 女
+    if (!patientName || !patientIdFromToken) {
       const bodyText = document.body.innerText || '';
-      // ID may be masked on screen (e.g. A221***433); accept asterisks too.
       if (!patientIdFromToken) {
         const idMatch = bodyText.match(/身分證[號]?[：:]\s*([A-Z][\d*]{9})/);
         if (idMatch) patientIdFromToken = idMatch[1];
       }
-      const nameMatch = bodyText.match(/身分證[號]?[：:]\s*[A-Z][\d*]{9}\s+([^\s民]+)/);
-      if (nameMatch) patientName = nameMatch[1].trim();
+      if (!patientName) {
+        // Try a few patterns. Name is 2-6 Chinese chars between the ID and 民/性別/birthday.
+        const patterns = [
+          /身分證[號]?[：:]\s*[A-Z][\d*]{9}\s+([一-龥]{2,6})/,
+          /姓\s*名[：:]\s*([一-龥]{2,6})/,
+          /([一-龥]{2,6})\s*民國?\s*\d{2,3}\s*[\/\-年]/
+        ];
+        for (const re of patterns) {
+          const m = bodyText.match(re);
+          if (m) { patientName = m[1].trim(); break; }
+        }
+      }
     }
 
     console.log("[NHITW Clinic] Patient info - Name:", patientName, "ID:", patientIdFromToken);
