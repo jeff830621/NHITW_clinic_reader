@@ -18,10 +18,11 @@ export function generateHtmlReport(patientName, patientId, data) {
   const surgeryHtml = buildSurgeryPanel(data.surgeryData?.rObject);
   const dischargeHtml = buildDischargePanel(data.dischargeData?.rObject);
   const acuBadgeHtml = buildAcupunctureBadge(data);
+  const cancerBadgeHtml = buildCancerCareBadge(data);
 
   return buildFullHtml(patientName, patientId, dateStr, {
     diagnosisHtml, labPivotHtml, westMedHtml, otherWestMedHtml, chineseMedHtml,
-    imagingHtml, allergyHtml, surgeryHtml, dischargeHtml, acuBadgeHtml
+    imagingHtml, allergyHtml, surgeryHtml, dischargeHtml, acuBadgeHtml, cancerBadgeHtml
   });
 }
 
@@ -423,6 +424,93 @@ function buildAcupunctureBadge(data) {
   return `<span class="acu-badge acu-${level}" title="${esc(tooltip)}">${label}</span>`;
 }
 
+// --- 中醫癌症病人加強照護整合方案 (特定癌症病人中醫門診加強照護計畫，適用範圍三) ---
+// 每個癌種有兩條路徑：
+//   path 1 (primary): 主診斷碼直接命中
+//   path 2 (mets + secondary): 主診斷為轉移/續發碼 + 次診斷對應原發部位
+// 由於健保 API 回傳是逐筆紀錄、未必標明主/次，這裡採寬鬆判定：
+// 只要兩組病人病歷裡同時出現過 mets 與 secondary 任一碼即視為符合 path 2。
+const CANCER_CARE_TYPES = [
+  {
+    name: '乳癌',
+    primary: ['C50', 'C79.81'],
+    mets: ['C77', 'C78.0', 'C78.1', 'C78.2', 'C78.3', 'C78.7', 'C79.2', 'C79.3', 'C79.5', 'C79.6', 'C79.7'],
+    secondary: ['C50', 'Z85.3'],
+  },
+  {
+    name: '肝癌',
+    primary: ['C22', 'C23', 'C24'],
+    mets: ['C77', 'C78.0', 'C78.1', 'C78.2', 'C78.4', 'C78.5', 'C78.6', 'C78.7', 'C78.8', 'C79.3', 'C79.5', 'C79.7', 'Z94.4'],
+    secondary: ['C22', 'C23', 'C24', 'Z85.05'],
+  },
+  {
+    name: '肺癌',
+    primary: ['C33', 'C34'],
+    mets: ['C77', 'C78.0', 'C78.1', 'C78.2', 'C78.3', 'C78.7', 'C79.3', 'C79.5', 'C79.6', 'C79.7', 'Z94.2'],
+    secondary: ['C33', 'C34', 'Z85.1'],
+  },
+  {
+    name: '大腸癌',
+    primary: ['C18', 'C19', 'C20', 'C21'],
+    mets: ['C77', 'C78.0', 'C78.1', 'C78.2', 'C78.4', 'C78.5', 'C78.6', 'C78.7', 'C78.8', 'C79.0', 'C79.3', 'C79.5', 'C79.6', 'C79.7'],
+    secondary: ['C18', 'C19', 'C20', 'C21', 'Z85.04'],
+  },
+  {
+    name: '胃癌',
+    primary: ['C16', 'C49.A1', 'C49.A2'],
+    mets: ['C77', 'C78.0', 'C78.1', 'C78.2', 'C78.3', 'C78.7', 'C79.2', 'C79.3', 'C79.5', 'C79.6', 'C79.7'],
+    secondary: ['C16', 'C49.A1', 'C49.A2', 'Z85.028'],
+  },
+  { name: '攝護腺癌', primary: ['C61'] },
+  { name: '口腔癌', primary: ['C01', 'C02', 'C03', 'C04', 'C05', 'C06', 'C07', 'C08', 'C09', 'C10'] },
+  { name: '子宮頸癌', primary: ['C53'] },
+  { name: '子宮體癌', primary: ['C54'] },
+  { name: '甲狀腺癌', primary: ['C73'] },
+];
+
+function detectCancerCarePlan(codes) {
+  const detected = [];
+  for (const type of CANCER_CARE_TYPES) {
+    const hits = new Set();
+    let matched = false;
+
+    // Path 1: direct primary code hit
+    for (const c of codes) {
+      if (type.primary.some(p => codeMatchesPrefix(c, p))) {
+        hits.add(c);
+        matched = true;
+      }
+    }
+
+    // Path 2: 轉移碼 + 次診斷碼 兼具
+    if (type.mets && type.secondary) {
+      const metHits = codes.filter(c => type.mets.some(p => codeMatchesPrefix(c, p)));
+      const secHits = codes.filter(c => type.secondary.some(p => codeMatchesPrefix(c, p)));
+      if (metHits.length > 0 && secHits.length > 0) {
+        metHits.forEach(c => hits.add(c));
+        secHits.forEach(c => hits.add(c));
+        matched = true;
+      }
+    }
+
+    if (matched) detected.push({ name: type.name, hits: [...hits] });
+  }
+  return detected;
+}
+
+function buildCancerCareBadge(data) {
+  const codes = collectAllIcdCodes(data);
+  const detected = detectCancerCarePlan(codes);
+  if (detected.length === 0) return '';
+
+  const names = detected.map(d => d.name).join('、');
+  const allHits = [...new Set(detected.flatMap(d => d.hits))];
+  const shown = allHits.slice(0, 15).join(', ');
+  const more = allHits.length > 15 ? `… (+${allHits.length - 15})` : '';
+  const tooltip = `符合中醫癌症加強照護方案：${names}\n命中 ICD: ${shown}${more}`;
+  return `<span class="cancer-badge" title="${esc(tooltip)}">🎗 癌症專案（${esc(names)}）</span>`;
+}
+
 // --- ATC5 Classification (matches extension's medicationGroups.js) ---
 const ATC5_GROUPS = {
   NSAID: ['M01AA', 'M01AB', 'M01AC', 'M01AE', 'M01AG', 'M01AH'],
@@ -774,6 +862,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .acu-badge { display:inline-block; margin-left:10px; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; vertical-align:middle; cursor:help; }
 .acu-badge.acu-high { background:#d32f2f; color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,0.3); }
 .acu-badge.acu-moderate { background:#f57c00; color:#fff; }
+.cancer-badge { display:inline-block; margin-left:8px; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; vertical-align:middle; cursor:help; background:#7b1fa2; color:#fff; }
 
 .layout { display:grid; grid-template-columns:1fr 1.5fr 1fr; gap:12px; padding:12px; min-height:calc(100vh - 60px); }
 
@@ -858,7 +947,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 
 <div class="header">
   <div>
-    <h1>${esc(name)}${panels.acuBadgeHtml || ''}</h1>
+    <h1>${esc(name)}${panels.acuBadgeHtml || ''}${panels.cancerBadgeHtml || ''}</h1>
     <div class="meta">${esc(id)} ｜ ${esc(dateStr)}</div>
   </div>
   <div class="actions">
