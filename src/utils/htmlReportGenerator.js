@@ -1003,6 +1003,8 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 
 .empty { color:#999; font-size:12px; padding:8px 0; }
 
+.clinic-credit { position:fixed; bottom:6px; right:10px; font-size:10px; color:#888; background:rgba(255,255,255,0.85); padding:2px 7px; border-radius:3px; pointer-events:none; z-index:100; letter-spacing:0.5px; }
+
 @media (max-width:1000px) { .layout { grid-template-columns:1fr; } }
 @media print {
   body { background:#fff; }
@@ -1010,6 +1012,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
   .layout { gap:8px; padding:8px; }
   .panel { box-shadow:none; border:1px solid #ddd; break-inside:avoid; }
   .panel-body.collapsed { display:block !important; }
+  .clinic-credit { position:fixed; bottom:4px; right:6px; background:transparent; color:#666; }
   .panel-title::before { content:'▾ ' !important; }
 }
 </style>
@@ -1066,6 +1069,8 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
     ${rightExtra}
   </div>
 </div>
+
+<div class="clinic-credit">八德仁德風澤　王文洲醫師</div>
 
 <script>
 function togglePanel(title) {
