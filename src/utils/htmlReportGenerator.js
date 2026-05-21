@@ -7,8 +7,14 @@ export function generateHtmlReport(patientName, patientId, data) {
   const now = new Date();
   const dateStr = formatDateTime(now);
 
+  // Pre-compute ICD codes flagged by the badges so the diagnosis panel can
+  // highlight the same codes the badges fired on.
+  const acuMatchedCodes = getMatchedAcuCodes(data);
+  const cancerMatchedCodes = getMatchedCancerCodes(data);
+  const highlightSets = { acu: acuMatchedCodes, cancer: cancerMatchedCodes };
+
   // Build each panel
-  const diagnosisHtml = buildDiagnosisPanel(data);
+  const diagnosisHtml = buildDiagnosisPanel(data, highlightSets);
   const labPivotHtml = buildLabPivotPanel(data.labData?.rObject);
   const westMedHtml = buildWestMedPanel(data.medicationData?.rObject, 100);
   const otherWestMedHtml = buildOtherWestMedPanel(data.medicationData?.rObject, 100);
@@ -50,11 +56,29 @@ function shortDate(r) {
   if (parts.length === 3) return `${parts[1]}/${parts[2]}`;
   return d;
 }
+// Full date YYYY/MM/DD — used for lab column headers (user wants years)
+function fullDate(r) {
+  const d = parseDate(r);
+  if (!d) return '';
+  const parts = d.split('-');
+  if (parts.length === 3) return `${parts[0]}/${parts[1]}/${parts[2]}`;
+  return d;
+}
 function parseHosp(r) { return r ? r.split(';')[0].trim() : ''; }
 
 // --- Diagnosis Panel (180-day, grouped by visit type, sorted by frequency) ---
-function buildDiagnosisPanel(data) {
+function buildDiagnosisPanel(data, highlightSets = {}) {
   const DIAG_TRACKING_DAYS = 180;
+  const acuSet = highlightSets.acu || new Set();
+  const cancerSet = highlightSets.cancer || new Set();
+  // Returns CSS class names to apply to a diag-item based on its ICD code
+  const matchClass = (code) => {
+    const c = String(code || '').trim();
+    const cls = [];
+    if (acuSet.has(c)) cls.push('diag-acu-match');
+    if (cancerSet.has(c)) cls.push('diag-cancer-match');
+    return cls.join(' ');
+  };
   // Collect from western + chinese meds (they have visit type info via hosp field)
   const outpatient = {}; // code -> { code, name, count }
   const emergency = [];
@@ -108,7 +132,7 @@ function buildDiagnosisPanel(data) {
   const opList = Object.values(outpatient).sort((a, b) => b.count - a.count);
   if (opList.length > 0) {
     for (const d of opList.slice(0, 8)) {
-      html += `<div class="diag-item"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)} <span class="diag-count">${d.count}</span></div>`;
+      html += `<div class="diag-item ${matchClass(d.code)}"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)} <span class="diag-count">${d.count}</span></div>`;
     }
     if (opList.length > 8) html += `<div class="diag-more">還有 ${opList.length - 8} 筆</div>`;
   }
@@ -117,7 +141,7 @@ function buildDiagnosisPanel(data) {
   if (emergency.length > 0) {
     html += '<div class="visit-type-label emergency-label">急診</div>';
     for (const d of emergency.slice(0, 5)) {
-      html += `<div class="diag-item"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)} <span class="diag-meta">${esc(d.date)}</span></div>`;
+      html += `<div class="diag-item ${matchClass(d.code)}"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)} <span class="diag-meta">${esc(d.date)}</span></div>`;
     }
   }
 
@@ -126,7 +150,7 @@ function buildDiagnosisPanel(data) {
   if (ipList.length > 0) {
     html += '<div class="visit-type-label inpatient-label">住診</div>';
     for (const d of ipList.slice(0, 5)) {
-      html += `<div class="diag-item"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)}</div>`;
+      html += `<div class="diag-item ${matchClass(d.code)}"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)}</div>`;
     }
   }
 
@@ -134,7 +158,7 @@ function buildDiagnosisPanel(data) {
   if (vaccine.length > 0) {
     html += '<div class="visit-type-label vaccine-label">疫苗</div>';
     for (const d of vaccine.slice(0, 5)) {
-      html += `<div class="diag-item"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)} <span class="diag-meta">${esc(d.date)}</span></div>`;
+      html += `<div class="diag-item ${matchClass(d.code)}"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)} <span class="diag-meta">${esc(d.date)}</span></div>`;
     }
   }
 
@@ -164,126 +188,118 @@ const FOCUSED_LAB_TESTS = [
   { orderCode: '09026C', name: 'GPT', enabled: true },
 ];
 
-// --- Lab Pivot Table (90-day, focused tests only, dates as columns) ---
+// --- Lab Pivot Table — ALL tests within tracking window, newest column leftmost ---
+// User asked: don't filter to focused tests, don't slice dates, include year,
+// high values in red / low values in green.
 function buildLabPivotPanel(items) {
   if (!items || items.length === 0) return '<p class="empty">無檢驗資料</p>';
   const LAB_TRACKING_DAYS = 180;
 
-  // Build set of enabled order codes
-  const enabledCodes = new Set(FOCUSED_LAB_TESTS.filter(t => t.enabled).map(t => t.orderCode));
-
-  // Filter: within tracking days, has result, matches focused codes
   const labItems = items.filter(l => {
     const v = l.assay_value;
-    if (!v || v.trim() === '' || v.trim() === '***') return false;
+    if (!v || String(v).trim() === '' || String(v).trim() === '***') return false;
     const date = l.real_inspect_date || l.recipe_date || '';
-    if (!isWithinDays(date, LAB_TRACKING_DAYS)) return false;
-    const code = l.order_code || '';
-    return enabledCodes.has(code);
+    return isWithinDays(date, LAB_TRACKING_DAYS);
   });
 
-  if (labItems.length === 0) return '<p class="empty">無關注檢驗結果</p>';
+  if (labItems.length === 0) return '<p class="empty">無檢驗資料</p>';
 
-  // Map each lab item to its display name from FOCUSED_LAB_TESTS
-  // Handle special cases: 08011C splits into WBC/Hb/Platelet, 09015C into Cr/GFR
+  // Collapse known multi-item codes (CBC sub-items, Cr+GFR pair) into their
+  // short FOCUSED names; everything else uses assay_item_name as-is.
+  function getDisplayName(l) {
+    const code = l.order_code || '';
+    const raw = (l.assay_item_name || l.order_name || '').toLowerCase();
+    if (code === '08011C') {
+      if (raw.includes('hb') || raw.includes('hemoglobin') || raw.includes('血色素')) return 'Hb';
+      if (raw.includes('wbc') || raw.includes('白血球')) return 'WBC';
+      if (raw.includes('plt') || raw.includes('platelet') || raw.includes('血小板')) return 'Platelet';
+    }
+    if (code === '09015C') {
+      if (raw.includes('gfr') || raw.includes('腎絲球')) return 'GFR';
+      return 'Cr';
+    }
+    if (code === '09040C' && (raw.includes('upcr') || raw.includes('protein'))) return 'UPCR';
+    if (code === '12111C' && (raw.includes('uacr') || raw.includes('albumin'))) return 'UACR';
+    const focused = FOCUSED_LAB_TESTS.find(t => t.orderCode === code && !t.subItem);
+    if (focused) return focused.name;
+    return l.assay_item_name || l.order_name || code || '?';
+  }
+
   const dateSet = new Set();
-  // displayName -> { dates: { date: { value, ref, isAbnormal } } }
   const itemMap = {};
+  let seq = 0;
 
   for (const l of labItems) {
     const date = parseDate(l.real_inspect_date || l.recipe_date || '');
-    const code = l.order_code || '';
-    const value = l.assay_value || '';
-    const ref = l.consult_value || '';
-    const itemName = (l.assay_item_name || l.order_name || '').toLowerCase();
     if (!date) continue;
-
-    // Determine display name based on order code and item name
-    let displayName = null;
-
-    if (code === '08011C') {
-      // CBC: determine sub-item
-      if (itemName.includes('hb') || itemName.includes('hemoglobin') || itemName.includes('血色素')) displayName = 'Hb';
-      else continue; // Skip WBC, Platelet (disabled by default)
-    } else if (code === '09015C') {
-      // Cr & GFR: determine which
-      if (itemName.includes('gfr') || itemName.includes('腎絲球')) displayName = 'GFR';
-      else displayName = 'Cr';
-    } else if (code === '09040C') {
-      if (itemName.includes('upcr') || itemName.includes('蛋白') || itemName.includes('protein')) displayName = 'UPCR';
-      else continue;
-    } else if (code === '12111C') {
-      if (itemName.includes('uacr') || itemName.includes('albumin') || itemName.includes('白蛋白')) displayName = 'UACR';
-      else continue;
-    } else {
-      // Direct match
-      const match = FOCUSED_LAB_TESTS.find(t => t.orderCode === code && t.enabled && !t.subItem);
-      if (match) displayName = match.name;
-    }
-
-    if (!displayName) continue;
-
+    const value = String(l.assay_value).trim();
+    const ref = l.consult_value || '';
+    const name = getDisplayName(l);
     dateSet.add(date);
-    if (!itemMap[displayName]) itemMap[displayName] = { name: displayName, dates: {} };
-    // Keep latest value per date (in case of duplicates)
-    itemMap[displayName].dates[date] = {
-      value,
-      ref,
-      isAbnormal: checkAbnormal(value, ref)
-    };
+    if (!itemMap[name]) itemMap[name] = { name, code: l.order_code || '', dates: {}, order: seq++ };
+    itemMap[name].dates[date] = { value, ref, dir: checkAbnormalDirection(value, ref) };
   }
 
-  // Sort dates newest first, take up to 6
-  const dates = [...dateSet].sort().reverse().slice(0, 6).reverse();
+  // Newest column leftmost
+  const dates = [...dateSet].sort((a, b) => b.localeCompare(a));
 
-  // Order rows by FOCUSED_LAB_TESTS order
-  const orderedNames = FOCUSED_LAB_TESTS.filter(t => t.enabled).map(t => t.name);
-  // Deduplicate (Cr and GFR both from 09015C)
-  const seenNames = new Set();
-  const uniqueOrderedNames = orderedNames.filter(n => {
-    if (seenNames.has(n)) return false;
-    seenNames.add(n);
-    return itemMap[n]; // only include if we have data
+  // Focused tests first (in defined order), then others by first-seen order
+  const focusedOrder = new Map();
+  FOCUSED_LAB_TESTS.forEach((t, i) => { if (!focusedOrder.has(t.name)) focusedOrder.set(t.name, i); });
+  const rowNames = Object.keys(itemMap).sort((a, b) => {
+    const fa = focusedOrder.has(a) ? focusedOrder.get(a) : 1000 + itemMap[a].order;
+    const fb = focusedOrder.has(b) ? focusedOrder.get(b) : 1000 + itemMap[b].order;
+    return fa - fb;
   });
 
-  if (dates.length === 0 || uniqueOrderedNames.length === 0) return '<p class="empty">無關注檢驗結果</p>';
+  if (dates.length === 0 || rowNames.length === 0) return '<p class="empty">無檢驗資料</p>';
 
-  // Build header
   let thead = '<tr><th class="lab-item-col">項目</th>';
-  for (const d of dates) thead += `<th class="lab-date-col">${esc(shortDate(d))}</th>`;
+  for (const d of dates) thead += `<th class="lab-date-col">${esc(fullDate(d))}</th>`;
   thead += '</tr>';
 
-  // Build rows in focused order
   let tbody = '';
-  for (const name of uniqueOrderedNames) {
+  for (const name of rowNames) {
     const item = itemMap[name];
-    tbody += `<tr><td class="lab-item-name">${esc(name)}</td>`;
+    tbody += `<tr><td class="lab-item-name" title="${esc(item.code)}">${esc(name)}</td>`;
     for (const d of dates) {
       const cell = item.dates[d];
       if (cell) {
-        tbody += `<td class="${cell.isAbnormal ? 'abnormal' : ''}">${esc(cell.value)}</td>`;
+        const cls = cell.dir === 'high' ? 'lab-high' : cell.dir === 'low' ? 'lab-low' : '';
+        tbody += `<td class="${cls}" title="${esc(cell.ref)}">${esc(cell.value)}</td>`;
       } else {
-        tbody += '<td class="no-data">\u2014</td>';
+        tbody += '<td class="no-data">-</td>';
       }
     }
     tbody += '</tr>';
   }
 
-  return `<table class="lab-pivot"><thead>${thead}</thead><tbody>${tbody}</tbody></table>
-  <div class="tracking-note">${LAB_TRACKING_DAYS} 天內</div>`;
+  return `<div class="lab-scroll"><table class="lab-pivot"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
+  <div class="tracking-note">${LAB_TRACKING_DAYS} 天內 · ${rowNames.length} 項 × ${dates.length} 次</div>`;
 }
 
 function checkAbnormal(value, reference) {
-  if (!value || !reference || value === '***') return false;
+  return checkAbnormalDirection(value, reference) !== null;
+}
+
+// 'high' = value above reference upper bound, 'low' = below lower bound, null = normal/unknown
+function checkAbnormalDirection(value, reference) {
+  if (!value || !reference || value === '***') return null;
   const num = parseFloat(value);
-  if (isNaN(num)) return false;
+  if (isNaN(num)) return null;
   const rangeMatch = reference.match(/([\d.]+)\s*[-~]\s*([\d.]+)/);
-  if (rangeMatch) return num < parseFloat(rangeMatch[1]) || num > parseFloat(rangeMatch[2]);
-  const ltMatch = reference.match(/[<≦]\s*([\d.]+)/);
-  if (ltMatch) return num > parseFloat(ltMatch[1]);
-  const gtMatch = reference.match(/[>≧]\s*([\d.]+)/);
-  if (gtMatch) return num < parseFloat(gtMatch[1]);
-  return false;
+  if (rangeMatch) {
+    const low = parseFloat(rangeMatch[1]);
+    const high = parseFloat(rangeMatch[2]);
+    if (num > high) return 'high';
+    if (num < low) return 'low';
+    return null;
+  }
+  const ltMatch = reference.match(/[<≦]\s*([\d.]+)/); // upper-bound reference
+  if (ltMatch) return num > parseFloat(ltMatch[1]) ? 'high' : null;
+  const gtMatch = reference.match(/[>≧]\s*([\d.]+)/); // lower-bound reference
+  if (gtMatch) return num < parseFloat(gtMatch[1]) ? 'low' : null;
+  return null;
 }
 
 // --- Acupuncture complexity indication (附表 4.4.2 / 4.4.3 / 4.4.4) ---
@@ -418,6 +434,29 @@ function getAcupunctureLevel(matches) {
   // 中度 = 命中 4.4.2 OR 命中 4.4.3 (與一般疾病併存)
   if (matches.moderate.length > 0 || matches.special.length > 0) return 'moderate';
   return null;
+}
+
+// Codes that actually contributed to the acupuncture badge (high/moderate +
+// special hits that satisfied the threshold). Used by the diagnosis panel to
+// highlight the matching rows.
+function getMatchedAcuCodes(data) {
+  const codes = collectAllIcdCodes(data);
+  const matches = classifyAcupunctureCodes(codes);
+  const level = getAcupunctureLevel(matches);
+  if (!level) return new Set();
+  const set = new Set();
+  matches.high.forEach(c => set.add(c));
+  matches.moderate.forEach(c => set.add(c));
+  matches.special.forEach(c => set.add(c));
+  return set;
+}
+
+function getMatchedCancerCodes(data) {
+  const codes = collectAllIcdCodes(data);
+  const detected = detectCancerCarePlan(codes);
+  const set = new Set();
+  for (const d of detected) for (const c of d.hits) set.add(c);
+  return set;
 }
 
 function buildAcupunctureBadge(data) {
@@ -913,14 +952,22 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .vaccine-label { background:#e3f2fd; color:#1565c0; }
 
 /* Lab pivot table */
-.lab-pivot { width:100%; border-collapse:collapse; font-size:12px; }
-.lab-pivot th { background:#f5f7fa; padding:6px 8px; text-align:center; border-bottom:2px solid #dee2e6; font-weight:600; font-size:11px; }
+.lab-scroll { overflow-x:auto; max-width:100%; }
+.lab-pivot { border-collapse:collapse; font-size:12px; white-space:nowrap; }
+.lab-pivot th { background:#f5f7fa; padding:6px 8px; text-align:center; border-bottom:2px solid #dee2e6; font-weight:600; font-size:11px; position:sticky; top:0; }
 .lab-pivot td { padding:5px 8px; text-align:center; border-bottom:1px solid #f0f0f0; }
-.lab-pivot .lab-item-name { text-align:left; font-weight:600; white-space:nowrap; }
-.lab-pivot .lab-item-col { text-align:left; }
+.lab-pivot .lab-item-name { text-align:left; font-weight:600; white-space:nowrap; position:sticky; left:0; background:#fff; z-index:1; }
+.lab-pivot .lab-item-col { text-align:left; position:sticky; left:0; background:#f5f7fa; z-index:2; }
 .lab-pivot .no-data { color:#ccc; }
-.lab-pivot .abnormal { color:#d32f2f; font-weight:bold; }
+.lab-pivot .lab-high { color:#d32f2f; font-weight:bold; }
+.lab-pivot .lab-low { color:#2e7d32; font-weight:bold; }
+.lab-pivot .abnormal { color:#d32f2f; font-weight:bold; } /* legacy fallback */
 .lab-pivot tr:hover { background:#f8f9ff; }
+.lab-pivot tr:hover .lab-item-name { background:#f8f9ff; }
+/* Diagnosis codes flagged by acupuncture / cancer badges */
+.diag-item.diag-acu-match { background:linear-gradient(90deg, rgba(245,124,0,0.18), transparent); border-left:3px solid #f57c00; padding-left:5px; }
+.diag-item.diag-cancer-match { background:linear-gradient(90deg, rgba(123,31,162,0.15), transparent); border-left:3px solid #7b1fa2; padding-left:5px; }
+.diag-item.diag-acu-match.diag-cancer-match { border-left:3px solid #d32f2f; background:linear-gradient(90deg, rgba(245,124,0,0.18), rgba(123,31,162,0.15)); }
 
 /* Medications */
 .med-group-header { font-size:12px; font-weight:600; color:#1565c0; background:#e3f2fd; padding:5px 10px; margin-top:6px; border-radius:4px; }
