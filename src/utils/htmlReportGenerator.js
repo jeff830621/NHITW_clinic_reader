@@ -3,6 +3,8 @@
  * Generates a self-contained HTML report matching the extension's Overview layout.
  */
 
+import { parseReferenceRange } from './labProcessorModules/referenceRangeUtils.js';
+
 export function generateHtmlReport(patientName, patientId, data) {
   const now = new Date();
   const dateStr = formatDateTime(now);
@@ -66,12 +68,13 @@ function fullDate(r) {
 }
 function parseHosp(r) { return r ? r.split(';')[0].trim() : ''; }
 
-// --- Diagnosis Panel (180-day, grouped by visit type, sorted by frequency) ---
+// --- Diagnosis Panel — ALL diagnoses, sorted by most-recent diagnosed date ---
+// Per user request: include every diagnosis (no top-N cap), sort by last-seen
+// date descending, and show that last date + hospital next to each code.
 function buildDiagnosisPanel(data, highlightSets = {}) {
   const DIAG_TRACKING_DAYS = 180;
   const acuSet = highlightSets.acu || new Set();
   const cancerSet = highlightSets.cancer || new Set();
-  // Returns CSS class names to apply to a diag-item based on its ICD code
   const matchClass = (code) => {
     const c = String(code || '').trim();
     const cls = [];
@@ -79,91 +82,118 @@ function buildDiagnosisPanel(data, highlightSets = {}) {
     if (cancerSet.has(c)) cls.push('diag-cancer-match');
     return cls.join(' ');
   };
-  // Collect from western + chinese meds (they have visit type info via hosp field)
-  const outpatient = {}; // code -> { code, name, count }
-  const emergency = [];
-  const inpatient = {};  // code -> first record
-  const vaccine = [];
 
-  function processItems(items, dateField, hospField, icdCodeField, icdNameField, atcField) {
+  // code -> { code, name, count, lastDate, lastHosp, lastType }
+  const diagMap = {};
+
+  function processItems(items, dateField, hospField, icdCodeField, icdNameField) {
     if (!items) return;
     for (const m of items) {
       const date = m[dateField] || '';
       if (!isWithinDays(date, DIAG_TRACKING_DAYS)) continue;
       const code = m[icdCodeField] || '';
       const name = m[icdNameField] || '';
-      if (!code || !name) continue;
-      const hospRaw = m[hospField] || '';
-      const hospParts = hospRaw.split(';');
+      if (!code) continue;
+      const hospParts = (m[hospField] || '').split(';');
       const hosp = hospParts[0]?.trim() || '';
       const visitType = hospParts[1]?.trim() || '門診';
+      const pd = parseDate(date);
 
-      // Check for vaccine: ICD Z23-Z27 + ATC J07
-      const atcCode = atcField ? (m[atcField] || '') : '';
-      if (/^Z2[3-7]/.test(code) && atcCode.startsWith('J07')) {
-        vaccine.push({ code, name, date: parseDate(date), hosp });
-        continue;
-      }
-
-      if (visitType.includes('急診')) {
-        emergency.push({ code, name, date: parseDate(date), hosp });
-      } else if (visitType.includes('住診') || visitType.includes('住院')) {
-        if (!inpatient[code]) inpatient[code] = { code, name, date: parseDate(date), hosp };
-      } else {
-        // 門診
-        if (!outpatient[code]) outpatient[code] = { code, name, count: 0 };
-        outpatient[code].count++;
-      }
+      if (!diagMap[code]) diagMap[code] = { code, name, count: 0, lastDate: '', lastHosp: '', lastType: '' };
+      const e = diagMap[code];
+      e.count++;
+      if (!e.name && name) e.name = name;
+      if (pd > e.lastDate) { e.lastDate = pd; e.lastHosp = hosp; e.lastType = visitType; }
     }
   }
 
-  processItems(data.medicationData?.rObject, 'PER_DATE', 'HOSP_NAME', 'ICD_CODE', 'ICD_NAME', 'ATC_CODE');
-  // Fallback field names
+  processItems(data.medicationData?.rObject, 'PER_DATE', 'HOSP_NAME', 'ICD_CODE', 'ICD_NAME');
   const allMeds = data.medicationData?.rObject || [];
   if (allMeds.length > 0 && !allMeds[0].PER_DATE) {
-    processItems(allMeds, 'drug_date', 'hosp', 'icd_code', 'icd_cname', 'drug_atc7_code');
+    processItems(allMeds, 'drug_date', 'hosp', 'icd_code', 'icd_cname');
   }
-  processItems(data.chinesemedData?.rObject, 'func_date', 'hosp', 'icd_code', 'icd_cname', null);
+  processItems(data.chinesemedData?.rObject, 'func_date', 'hosp', 'icd_code', 'icd_cname');
 
-  // Build HTML
+  // Sort by most-recent date desc; tiebreak by frequency
+  const list = Object.values(diagMap).sort((a, b) => {
+    if (b.lastDate !== a.lastDate) return b.lastDate.localeCompare(a.lastDate);
+    return b.count - a.count;
+  });
+  if (list.length === 0) return '<p class="empty">無診斷紀錄</p>';
+
   let html = '';
-
-  // Outpatient (sorted by frequency desc)
-  const opList = Object.values(outpatient).sort((a, b) => b.count - a.count);
-  if (opList.length > 0) {
-    for (const d of opList.slice(0, 8)) {
-      html += `<div class="diag-item ${matchClass(d.code)}"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)} <span class="diag-count">${d.count}</span></div>`;
-    }
-    if (opList.length > 8) html += `<div class="diag-more">還有 ${opList.length - 8} 筆</div>`;
+  for (const d of list) {
+    let typeTag = '';
+    if (d.lastType.includes('急')) typeTag = '<span class="diag-type emergency">急</span>';
+    else if (d.lastType.includes('住')) typeTag = '<span class="diag-type inpatient">住</span>';
+    const dateStr = d.lastDate ? d.lastDate.replace(/-/g, '/') : '';
+    const meta = [dateStr, d.lastHosp].filter(Boolean).join(' ');
+    html += `<div class="diag-item ${matchClass(d.code)}">`
+      + `<div class="diag-line1">${typeTag}<span class="diag-code">${esc(d.code)}</span> ${esc(d.name)}`
+      + `<span class="diag-count">${d.count}次</span></div>`
+      + `<div class="diag-line2">${esc(meta)}</div>`
+      + `</div>`;
   }
-
-  // Emergency
-  if (emergency.length > 0) {
-    html += '<div class="visit-type-label emergency-label">急診</div>';
-    for (const d of emergency.slice(0, 5)) {
-      html += `<div class="diag-item ${matchClass(d.code)}"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)} <span class="diag-meta">${esc(d.date)}</span></div>`;
-    }
-  }
-
-  // Inpatient
-  const ipList = Object.values(inpatient);
-  if (ipList.length > 0) {
-    html += '<div class="visit-type-label inpatient-label">住診</div>';
-    for (const d of ipList.slice(0, 5)) {
-      html += `<div class="diag-item ${matchClass(d.code)}"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)}</div>`;
-    }
-  }
-
-  // Vaccine
-  if (vaccine.length > 0) {
-    html += '<div class="visit-type-label vaccine-label">疫苗</div>';
-    for (const d of vaccine.slice(0, 5)) {
-      html += `<div class="diag-item ${matchClass(d.code)}"><span class="diag-code">${esc(d.code)}</span> ${esc(d.name)} <span class="diag-meta">${esc(d.date)}</span></div>`;
-    }
-  }
-
-  if (!html) return '<p class="empty">無診斷紀錄</p>';
   return html;
+}
+
+// --- Lab name aliases: merge English + Chinese variants of the same test ---
+// The NHI cloud reports the same item under different names depending on the
+// reporting hospital (e.g. "Hb" vs "血色素", "Amylase(B)" vs "血液澱粉脢"),
+// which used to produce duplicate rows. Map each known variant to one canonical
+// name so they collapse into a single row.
+const LAB_ALIAS = [
+  ['WBC', ['wbc', '白血球', '白血球計數', 'white blood cell', 'white blood cell count', 'wbc count']],
+  ['RBC', ['rbc', '紅血球計數', '紅血球', 'red blood cell', 'red blood cell count', 'rbc count']],
+  ['Hb', ['hb', 'hgb', 'hemoglobin', '血色素', '血紅素', '血紅蛋白']],
+  ['HCT', ['hct', 'hematocrit', '血球比容值測定', '血容比', '血球容積比', '血比容', '血球比容', '血容積比']],
+  ['MCV', ['mcv', '紅血球平均容積', '平均紅血球容積', '平均血球容積']],
+  ['MCHC', ['mchc', '紅血球色素濃度', '平均紅血球血色素濃度']],
+  ['MCH', ['mch', '紅血球色素', '平均紅血球血色素']],
+  ['RDW', ['rdw', 'rdw-cv', 'rdw-sd', '紅血球分佈變異數', '紅血球分布寬度', '紅血球分布變異係數', '紅血球分佈寬度']],
+  ['Platelet', ['platelet', 'plt', '血小板', '血小板計數']],
+  ['MPV', ['mpv', '平均血小板容積']],
+  ['Neutrophil', ['neutrophil', 'neutrophil-segmented', 'segment', 'seg', '嗜中性白血球', '中性球', '節狀核嗜中性白血球']],
+  ['Lymphocyte', ['lymphocyte', 'lymph', '淋巴球']],
+  ['Monocyte', ['monocyte', 'mono', '單核球']],
+  ['Eosinophil', ['eosinophil', 'eo', '嗜伊紅性白血球', '嗜酸性球', '嗜伊紅白血球']],
+  ['Basophil', ['basophil', 'baso', '嗜鹼性白血球']],
+  ['Glucose', ['glucose', 'sugar', 'ac sugar', 'blood sugar', '葡萄糖', '血糖', '飯前血糖', '空腹血糖', '飯前血糖(ac)']],
+  ['Amylase', ['amylase', 'amylase(b)', '血液澱粉脢', '澱粉酶', '澱粉脢']],
+  ['Lipase', ['lipase', '解脂脢', '脂肪酶', '脂解酶']],
+  ['ALK-P', ['alk-p', 'alkp', 'alp', '鹼性磷酸脢', '鹼性磷酸酶', '鹼性磷酸酵素']],
+  ['T-Bil', ['total bilirubin', 't-bil', 'tbil', '總膽紅素', '膽紅素總量', '總膽色素']],
+  ['D-Bil', ['direct bilirubin', 'd-bil', 'dbil', '直接膽紅素', '直接膽色素']],
+  ['BUN', ['bun', '尿素氮', '血中尿素氮', '尿素氮(bun)']],
+  ['Cr', ['cr', 'creatinine', '肌酸酐', '肌酐', '血清肌酸酐', '肌酸肝']],
+  ['Na', ['na', 'sodium', '鈉']],
+  ['K', ['k', 'potassium', '鉀']],
+  ['Cl', ['cl', 'chloride', '氯']],
+  ['GOT', ['got', 'ast', 'sgot', '天門冬胺酸轉胺酶', '天門冬胺酸胺基轉移酶']],
+  ['GPT', ['gpt', 'alt', 'sgpt', '丙胺酸轉胺酶', '丙胺酸胺基轉移酶']],
+  ['CRP', ['crp', 'c反應蛋白', 'c-反應蛋白', 'c 反應蛋白', 'c-reactive protein']],
+];
+function normalizeLabName(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/ｃ/g, 'c')                       // fullwidth c (from Ｃ反應蛋白)
+    .replace(/（/g, '(').replace(/）/g, ')')   // fullwidth parens
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+const LAB_ALIAS_LOOKUP = (() => {
+  const m = new Map();
+  for (const [canon, aliases] of LAB_ALIAS) {
+    for (const a of aliases) m.set(normalizeLabName(a), canon);
+  }
+  return m;
+})();
+function canonicalLabName(l) {
+  const norm = normalizeLabName(l.assay_item_name || l.order_name || '');
+  if (LAB_ALIAS_LOOKUP.has(norm)) return LAB_ALIAS_LOOKUP.get(norm);
+  const noParen = norm.replace(/\(.*?\)/g, '').trim();
+  if (noParen && LAB_ALIAS_LOOKUP.has(noParen)) return LAB_ALIAS_LOOKUP.get(noParen);
+  return (l.assay_item_name || l.order_name || l.order_code || '?').trim();
 }
 
 // --- Focused Lab Tests (matches extension's labTests.js DEFAULT_LAB_TESTS) ---
@@ -204,27 +234,6 @@ function buildLabPivotPanel(items) {
 
   if (labItems.length === 0) return '<p class="empty">無檢驗資料</p>';
 
-  // Collapse known multi-item codes (CBC sub-items, Cr+GFR pair) into their
-  // short FOCUSED names; everything else uses assay_item_name as-is.
-  function getDisplayName(l) {
-    const code = l.order_code || '';
-    const raw = (l.assay_item_name || l.order_name || '').toLowerCase();
-    if (code === '08011C') {
-      if (raw.includes('hb') || raw.includes('hemoglobin') || raw.includes('血色素')) return 'Hb';
-      if (raw.includes('wbc') || raw.includes('白血球')) return 'WBC';
-      if (raw.includes('plt') || raw.includes('platelet') || raw.includes('血小板')) return 'Platelet';
-    }
-    if (code === '09015C') {
-      if (raw.includes('gfr') || raw.includes('腎絲球')) return 'GFR';
-      return 'Cr';
-    }
-    if (code === '09040C' && (raw.includes('upcr') || raw.includes('protein'))) return 'UPCR';
-    if (code === '12111C' && (raw.includes('uacr') || raw.includes('albumin'))) return 'UACR';
-    const focused = FOCUSED_LAB_TESTS.find(t => t.orderCode === code && !t.subItem);
-    if (focused) return focused.name;
-    return l.assay_item_name || l.order_name || code || '?';
-  }
-
   const dateSet = new Set();
   const itemMap = {};
   let seq = 0;
@@ -234,10 +243,15 @@ function buildLabPivotPanel(items) {
     if (!date) continue;
     const value = String(l.assay_value).trim();
     const ref = l.consult_value || '';
-    const name = getDisplayName(l);
+    const code = l.order_code || '';
+    const unit = (l.unit_data || '').trim();
+    const name = canonicalLabName(l);
     dateSet.add(date);
-    if (!itemMap[name]) itemMap[name] = { name, code: l.order_code || '', dates: {}, order: seq++ };
-    itemMap[name].dates[date] = { value, ref, dir: checkAbnormalDirection(value, ref) };
+    if (!itemMap[name]) itemMap[name] = { name, code, unit: '', dates: {}, order: seq++ };
+    // Capture the first non-empty unit + reference display we encounter
+    if (!itemMap[name].unit && unit) itemMap[name].unit = unit;
+    if (!itemMap[name].code && code) itemMap[name].code = code;
+    itemMap[name].dates[date] = { value, dir: labDirection(value, ref, code), ref: refDisplay(ref, code) };
   }
 
   // Newest column leftmost
@@ -261,12 +275,14 @@ function buildLabPivotPanel(items) {
   let tbody = '';
   for (const name of rowNames) {
     const item = itemMap[name];
-    tbody += `<tr><td class="lab-item-name" title="${esc(item.code)}">${esc(name)}</td>`;
+    const unitLabel = item.unit ? `<span class="lab-unit">${esc(item.unit)}</span>` : '';
+    tbody += `<tr><td class="lab-item-name" title="${esc(item.code)}">${esc(name)}${unitLabel}</td>`;
     for (const d of dates) {
       const cell = item.dates[d];
       if (cell) {
         const cls = cell.dir === 'high' ? 'lab-high' : cell.dir === 'low' ? 'lab-low' : '';
-        tbody += `<td class="${cls}" title="${esc(cell.ref)}">${esc(cell.value)}</td>`;
+        const tip = cell.ref ? `參考值 ${cell.ref}` : '';
+        tbody += `<td class="${cls}" title="${esc(tip)}">${esc(cell.value)}</td>`;
       } else {
         tbody += '<td class="no-data">-</td>';
       }
@@ -278,27 +294,44 @@ function buildLabPivotPanel(items) {
   <div class="tracking-note">${LAB_TRACKING_DAYS} 天內 · ${rowNames.length} 項 × ${dates.length} 次</div>`;
 }
 
-function checkAbnormal(value, reference) {
-  return checkAbnormalDirection(value, reference) !== null;
+// Friendly reference range text for the cell tooltip (e.g. "12-16", "<140", ">40")
+function refDisplay(refStr, orderCode) {
+  const range = labRefRange(refStr, orderCode);
+  if (!range) return '';
+  if (range.min != null && range.max != null) return `${range.min}-${range.max}`;
+  if (range.max != null) return `<${range.max}`;
+  if (range.min != null) return `>${range.min}`;
+  return '';
 }
 
-// 'high' = value above reference upper bound, 'low' = below lower bound, null = normal/unknown
-function checkAbnormalDirection(value, reference) {
-  if (!value || !reference || value === '***') return null;
+function checkAbnormal(value, reference, orderCode) {
+  return labDirection(value, reference, orderCode) !== null;
+}
+
+// Resolve a reference range to { min, max }. Handles the hyphen-range-in-one-
+// bracket form "[70-100]" / "[0.4-1.1]" / "[-2-3]" (which the extension's
+// parseReferenceRange misses — it only knows "[70][100]" and "[7~25]"), then
+// falls back to the robust parser for [min][max], <X, ≧X, etc.
+function labRefRange(reference, orderCode) {
+  const s = String(reference || '');
+  const m = s.match(/\[\s*(-?\d*\.?\d+)\s*[-~]\s*(-?\d*\.?\d+)\s*\]/);
+  if (m) {
+    const lo = parseFloat(m[1]);
+    const hi = parseFloat(m[2]);
+    if (!isNaN(lo) && !isNaN(hi)) return { min: lo, max: hi };
+  }
+  try { return parseReferenceRange(reference, orderCode || null, null); } catch { return null; }
+}
+
+// 'high' = above reference max, 'low' = below reference min, null = normal/unknown.
+function labDirection(value, reference, orderCode) {
+  if (value == null || value === '' || value === '***') return null;
   const num = parseFloat(value);
   if (isNaN(num)) return null;
-  const rangeMatch = reference.match(/([\d.]+)\s*[-~]\s*([\d.]+)/);
-  if (rangeMatch) {
-    const low = parseFloat(rangeMatch[1]);
-    const high = parseFloat(rangeMatch[2]);
-    if (num > high) return 'high';
-    if (num < low) return 'low';
-    return null;
-  }
-  const ltMatch = reference.match(/[<≦]\s*([\d.]+)/); // upper-bound reference
-  if (ltMatch) return num > parseFloat(ltMatch[1]) ? 'high' : null;
-  const gtMatch = reference.match(/[>≧]\s*([\d.]+)/); // lower-bound reference
-  if (gtMatch) return num < parseFloat(gtMatch[1]) ? 'low' : null;
+  const range = labRefRange(reference, orderCode);
+  if (!range) return null;
+  if (range.max != null && num > range.max) return 'high';
+  if (range.min != null && num < range.min) return 'low';
   return null;
 }
 
@@ -940,12 +973,17 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .panel-body.collapsed { display:none; }
 
 /* Diagnosis */
-.diag-item { padding:4px 0; border-bottom:1px solid #f5f5f5; font-size:12px; display:flex; align-items:center; gap:6px; }
+.diag-item { padding:5px 0; border-bottom:1px solid #f5f5f5; font-size:12px; }
 .diag-item:last-child { border-bottom:none; }
+.diag-line1 { display:flex; align-items:center; gap:6px; }
+.diag-line2 { font-size:10px; color:#999; margin-top:1px; margin-left:2px; }
 .diag-code { background:#e8f5e9; color:#2e7d32; padding:1px 6px; border-radius:3px; font-size:10px; font-weight:600; flex-shrink:0; }
 .diag-count { background:#e3f2fd; color:#1565c0; padding:0 5px; border-radius:8px; font-size:10px; font-weight:600; margin-left:auto; flex-shrink:0; }
 .diag-meta { color:#999; font-size:10px; margin-left:auto; flex-shrink:0; }
 .diag-more { color:#999; font-size:11px; padding:4px 0; text-align:center; }
+.diag-type { font-size:9px; font-weight:700; padding:0 4px; border-radius:3px; flex-shrink:0; }
+.diag-type.emergency { background:#ffebee; color:#c62828; }
+.diag-type.inpatient { background:#fff3e0; color:#e65100; }
 .visit-type-label { font-size:11px; font-weight:600; padding:4px 8px; margin-top:8px; border-radius:3px; }
 .emergency-label { background:#ffebee; color:#c62828; }
 .inpatient-label { background:#e8f5e9; color:#2e7d32; }
@@ -957,6 +995,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .lab-pivot th { background:#f5f7fa; padding:6px 8px; text-align:center; border-bottom:2px solid #dee2e6; font-weight:600; font-size:11px; position:sticky; top:0; }
 .lab-pivot td { padding:5px 8px; text-align:center; border-bottom:1px solid #f0f0f0; }
 .lab-pivot .lab-item-name { text-align:left; font-weight:600; white-space:nowrap; position:sticky; left:0; background:#fff; z-index:1; }
+.lab-pivot .lab-unit { color:#999; font-weight:400; font-size:10px; margin-left:4px; }
 .lab-pivot .lab-item-col { text-align:left; position:sticky; left:0; background:#f5f7fa; z-index:2; }
 .lab-pivot .no-data { color:#ccc; }
 .lab-pivot .lab-high { color:#d32f2f; font-weight:bold; }
