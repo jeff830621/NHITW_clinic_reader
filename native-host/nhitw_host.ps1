@@ -186,6 +186,19 @@ function Action-WriteHtml($msg) {
     try {
         $date = if ($msg.date) { $msg.date } else { Get-TodayString }
         $folder = Ensure-DateFolder $date
+
+        # Optional 早診/午診/晚診 subfolder under the date folder
+        if ($msg.session) {
+            # Sanitize: only allow the three expected values to avoid path injection
+            $allowed = @('早診','午診','晚診')
+            if ($allowed -contains $msg.session) {
+                $folder = Join-Path $folder $msg.session
+                if (-not (Test-Path $folder)) {
+                    New-Item -ItemType Directory -Path $folder -Force | Out-Null
+                }
+            }
+        }
+
         $filename = $msg.filename
         $filepath = Join-Path $folder $filename
 

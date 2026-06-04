@@ -63,13 +63,18 @@ export async function readPatient(filename, date) {
 
 /**
  * Write an HTML report file to the shared folder.
+ * @param {string} filename - basename only (e.g. "王小明_20260525_1030.html")
+ * @param {string} content  - full HTML
+ * @param {string} [date]   - "yyyy-MM-dd" date folder; defaults to host today
+ * @param {string} [session] - "早診"/"午診"/"晚診" subfolder under date folder
  */
-export async function writeHtml(filename, content, date) {
+export async function writeHtml(filename, content, date, session) {
   return sendNativeMessage({
     action: "write_html",
     filename: filename,
     content: content,
     date: date || undefined,
+    session: session || undefined,
   });
 }
 

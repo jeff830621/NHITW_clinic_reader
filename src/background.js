@@ -37,6 +37,19 @@ function clearMedicalData() {
 }
 
 /**
+ * Classify the current time into a clinic session folder name.
+ * Boundaries: 早診 < 13:00 ≤ 午診 < 17:50 ≤ 晚診
+ * (set by clinic schedule — keep in sync with native host expectations)
+ */
+function getClinicSession(date) {
+  const d = date || new Date();
+  const minutes = d.getHours() * 60 + d.getMinutes();
+  if (minutes < 13 * 60) return '早診';            // < 13:00
+  if (minutes < 17 * 60 + 50) return '午診';       // 13:00 – 17:49
+  return '晚診';                                    // ≥ 17:50
+}
+
+/**
  * Auto-export patient data to shared folder via Native Messaging Host.
  * Debounced: waits for all data types to arrive before generating HTML.
  * Uses chrome.alarms instead of setTimeout because MV3 Service Workers
@@ -115,16 +128,17 @@ async function autoExportToSharedFolder() {
     // Generate and write HTML report only (no JSON)
     const html = generateHtmlReport(patientName, patientId, exportData, patientMeta);
     const filename = getReportFilename(patientName);
+    const session = getClinicSession(new Date());
     const sizeKB = Math.round(new Blob([html]).size / 1024);
-    console.log(`[NHITW Clinic] Generating HTML: ${filename} (${sizeKB}KB, ${Object.keys(exportData).length} data types)`);
+    console.log(`[NHITW Clinic] Generating HTML: ${filename} (${sizeKB}KB, ${Object.keys(exportData).length} data types, session=${session})`);
 
     if (sizeKB > 900) {
       console.warn(`[NHITW Clinic] HTML too large (${sizeKB}KB), exceeds Native Messaging limit`);
       return;
     }
 
-    await writeHtml(filename, html);
-    console.log(`[NHITW Clinic] HTML report saved: ${filename}`);
+    await writeHtml(filename, html, undefined, session);
+    console.log(`[NHITW Clinic] HTML report saved: ${session}/${filename}`);
   } catch (err) {
     console.warn('[NHITW Clinic] Auto-export failed (non-blocking):', err.message);
   }
