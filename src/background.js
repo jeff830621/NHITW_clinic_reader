@@ -72,13 +72,16 @@ async function autoExportToSharedFolder() {
     // Ask content script for fresh patient info right now — sessionStorage
     // JWT is the same source the popup UI uses, so if the popup can show the
     // name, this call will return it. This bypasses any earlier saveToken
-    // race or empty-string snafu.
+    // race or empty-string snafu. Also returns age + sex (needed by the
+    // asthma / CKD project badges).
+    let patientMeta = { age: null, sex: '', birthday: '' };
     try {
       const tabs = await chrome.tabs.query({ url: 'https://medcloud2.nhi.gov.tw/*' });
       if (tabs.length > 0) {
         const fresh = await chrome.tabs.sendMessage(tabs[0].id, { action: 'getPatientInfo' });
         if (fresh?.name) currentSessionData.patientName = fresh.name;
         if (fresh?.id) currentSessionData.patientIdFromToken = fresh.id;
+        if (fresh) patientMeta = { age: fresh.age ?? null, sex: fresh.sex || '', birthday: fresh.birthday || '' };
         console.log('[NHITW Clinic] Fresh patient info from tab:', fresh);
       }
     } catch (e) {
@@ -110,7 +113,7 @@ async function autoExportToSharedFolder() {
     }
 
     // Generate and write HTML report only (no JSON)
-    const html = generateHtmlReport(patientName, patientId, exportData);
+    const html = generateHtmlReport(patientName, patientId, exportData, patientMeta);
     const filename = getReportFilename(patientName);
     const sizeKB = Math.round(new Blob([html]).size / 1024);
     console.log(`[NHITW Clinic] Generating HTML: ${filename} (${sizeKB}KB, ${Object.keys(exportData).length} data types)`);

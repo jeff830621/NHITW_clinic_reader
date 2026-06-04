@@ -1891,9 +1891,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "getPatientInfo") {
     // Read sessionStorage JWT and decode — same source the popup uses, so if
     // popup shows the name this will too. Called by background.js right
-    // before generating the HTML report filename.
+    // before generating the HTML report filename. Also extracts age + sex
+    // because the report's CKD/asthma project badges need them.
     let name = '';
     let id = '';
+    let age = null;
+    let sex = '';
+    let birthday = '';
     try {
       const tokenNames = ['jwt_token', 'token', 'access_token', 'auth_token'];
       let raw = null;
@@ -1910,12 +1914,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const payload = JSON.parse(json);
         name = payload.UserName || '';
         id = payload.UserID || '';
+        sex = payload.UserSex || '';
+        birthday = payload.UserBirthday || '';
+        // ROC YYYMMDD → AD year then compute age (same as extractUserInfoFromToken)
+        if (birthday && birthday.length === 7) {
+          const rocYear = parseInt(birthday.substring(0, 3), 10);
+          const month = parseInt(birthday.substring(3, 5), 10);
+          const day = parseInt(birthday.substring(5, 7), 10);
+          if (!isNaN(rocYear) && !isNaN(month) && !isNaN(day)) {
+            const adYear = rocYear + 1911;
+            const birthDate = new Date(adYear, month - 1, day);
+            const today = new Date();
+            age = today.getFullYear() - birthDate.getFullYear();
+            const md = today.getMonth() - birthDate.getMonth();
+            if (md < 0 || (md === 0 && today.getDate() < birthDate.getDate())) age--;
+          }
+        }
       }
     } catch (e) {
       console.warn('[NHITW Clinic] getPatientInfo decode failed:', e.message);
     }
-    console.log('[NHITW Clinic] getPatientInfo →', { name, id });
-    sendResponse({ name, id });
+    console.log('[NHITW Clinic] getPatientInfo →', { name, id, age, sex });
+    sendResponse({ name, id, age, sex, birthday });
     return true;
   }
 

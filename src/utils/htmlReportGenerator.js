@@ -5,7 +5,7 @@
 
 import { parseReferenceRange } from './labProcessorModules/referenceRangeUtils.js';
 
-export function generateHtmlReport(patientName, patientId, data) {
+export function generateHtmlReport(patientName, patientId, data, patientMeta = {}) {
   const now = new Date();
   const dateStr = formatDateTime(now);
 
@@ -13,7 +13,8 @@ export function generateHtmlReport(patientName, patientId, data) {
   // highlight the same codes the badges fired on.
   const acuMatchedCodes = getMatchedAcuCodes(data);
   const cancerMatchedCodes = getMatchedCancerCodes(data);
-  const highlightSets = { acu: acuMatchedCodes, cancer: cancerMatchedCodes };
+  const asthmaMatchedCodes = getMatchedAsthmaCodes(data, patientMeta);
+  const highlightSets = { acu: acuMatchedCodes, cancer: cancerMatchedCodes, asthma: asthmaMatchedCodes };
 
   // Build each panel
   const diagnosisHtml = buildDiagnosisPanel(data, highlightSets);
@@ -30,12 +31,13 @@ export function generateHtmlReport(patientName, patientId, data) {
   const hbcvHtml = buildHbcvPanel(data.hbcvData);
   const acuBadgeHtml = buildAcupunctureBadge(data);
   const cancerBadgeHtml = buildCancerCareBadge(data);
+  const asthmaBadgeHtml = buildAsthmaBadge(data, patientMeta);
 
   return buildFullHtml(patientName, patientId, dateStr, {
     diagnosisHtml, labPivotHtml, westMedHtml, otherWestMedHtml, chineseMedHtml,
     imagingHtml, allergyHtml, surgeryHtml, dischargeHtml,
     adultHealthHtml, cancerScreeningHtml, hbcvHtml,
-    acuBadgeHtml, cancerBadgeHtml
+    acuBadgeHtml, cancerBadgeHtml, asthmaBadgeHtml
   });
 }
 
@@ -80,11 +82,13 @@ function buildDiagnosisPanel(data, highlightSets = {}) {
   const DIAG_TRACKING_DAYS = 180;
   const acuSet = highlightSets.acu || new Set();
   const cancerSet = highlightSets.cancer || new Set();
+  const asthmaSet = highlightSets.asthma || new Set();
   const matchClass = (code) => {
     const c = String(code || '').trim();
     const cls = [];
     if (acuSet.has(c)) cls.push('diag-acu-match');
     if (cancerSet.has(c)) cls.push('diag-cancer-match');
+    if (asthmaSet.has(c)) cls.push('diag-asthma-match');
     return cls.join(' ');
   };
 
@@ -612,6 +616,32 @@ function buildCancerCareBadge(data) {
   return `<span class="cancer-badge" title="${esc(tooltip)}">🎗 癌症專案（${esc(names)}）</span>`;
 }
 
+// --- 中醫氣喘專案 ---
+// 規則：(1) 病歷裡有任一氣喘 ICD (J45.x，含 J45.0–J45.9 及其延伸碼)
+//       (2) 年齡 < 12 歲（不含 12）
+// J45 是 ICD-10-CM 氣喘大分類，涵蓋過敏性/非過敏性/混合型/輕中重度等所有變體。
+function findAsthmaIcdCodes(data) {
+  const all = collectAllIcdCodes(data);
+  return all.filter(c => codeMatchesPrefix(c, 'J45'));
+}
+function getMatchedAsthmaCodes(data, patientMeta = {}) {
+  const set = new Set();
+  const age = patientMeta?.age;
+  if (typeof age !== 'number' || age >= 12) return set;
+  for (const c of findAsthmaIcdCodes(data)) set.add(c);
+  return set;
+}
+function buildAsthmaBadge(data, patientMeta = {}) {
+  const age = patientMeta?.age;
+  const codes = findAsthmaIcdCodes(data);
+  console.log('[NHITW Clinic] Asthma check: age=' + age + ', J45 codes=' + JSON.stringify(codes));
+  if (typeof age !== 'number' || age >= 12 || codes.length === 0) return '';
+  const shown = codes.slice(0, 8).join(', ');
+  const more = codes.length > 8 ? `… (+${codes.length - 8})` : '';
+  const tooltip = `符合中醫氣喘專案：年齡 ${age} 歲 (<12)，曾下氣喘診斷\n命中 ICD: ${shown}${more}`;
+  return `<span class="asthma-badge" title="${esc(tooltip)}">🫁 氣喘專案（${age}歲）</span>`;
+}
+
 // --- ATC5 Classification (matches extension's medicationGroups.js) ---
 const ATC5_GROUPS = {
   NSAID: ['M01AA', 'M01AB', 'M01AC', 'M01AE', 'M01AG', 'M01AH'],
@@ -1059,6 +1089,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .acu-badge.acu-high { background:#d32f2f; color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,0.3); }
 .acu-badge.acu-moderate { background:#f57c00; color:#fff; }
 .cancer-badge { display:inline-block; margin-left:8px; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; vertical-align:middle; cursor:help; background:#7b1fa2; color:#fff; }
+.asthma-badge { display:inline-block; margin-left:8px; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; vertical-align:middle; cursor:help; background:#0288d1; color:#fff; }
 
 .layout { display:grid; grid-template-columns:1fr 1.5fr 1fr; gap:12px; padding:12px; min-height:calc(100vh - 60px); }
 
@@ -1107,6 +1138,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .diag-item.diag-acu-match { background:linear-gradient(90deg, rgba(245,124,0,0.18), transparent); border-left:3px solid #f57c00; padding-left:5px; }
 .diag-item.diag-cancer-match { background:linear-gradient(90deg, rgba(123,31,162,0.15), transparent); border-left:3px solid #7b1fa2; padding-left:5px; }
 .diag-item.diag-acu-match.diag-cancer-match { border-left:3px solid #d32f2f; background:linear-gradient(90deg, rgba(245,124,0,0.18), rgba(123,31,162,0.15)); }
+.diag-item.diag-asthma-match { background:linear-gradient(90deg, rgba(2,136,209,0.18), transparent); border-left:3px solid #0288d1; padding-left:5px; }
 
 /* Medications */
 .med-group-header { font-size:12px; font-weight:600; color:#1565c0; background:#e3f2fd; padding:5px 10px; margin-top:6px; border-radius:4px; }
@@ -1180,7 +1212,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 
 <div class="header">
   <div>
-    <h1>${esc(name)}${panels.acuBadgeHtml || ''}${panels.cancerBadgeHtml || ''}</h1>
+    <h1>${esc(name)}${panels.acuBadgeHtml || ''}${panels.cancerBadgeHtml || ''}${panels.asthmaBadgeHtml || ''}</h1>
     <div class="meta">${esc(id)} ｜ ${esc(dateStr)}</div>
   </div>
   <div class="actions">
