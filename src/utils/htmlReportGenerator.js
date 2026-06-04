@@ -618,28 +618,38 @@ function buildCancerCareBadge(data) {
 
 // --- 中醫氣喘專案 ---
 // 規則：(1) 病歷裡有任一氣喘 ICD (J45.x，含 J45.0–J45.9 及其延伸碼)
-//       (2) 年齡 < 12 歲（不含 12）
+//       (2) 收案年 − 出生年 < 12（不看月日，年差 12 即不符合）
 // J45 是 ICD-10-CM 氣喘大分類，涵蓋過敏性/非過敏性/混合型/輕中重度等所有變體。
 function findAsthmaIcdCodes(data) {
   const all = collectAllIcdCodes(data);
   return all.filter(c => codeMatchesPrefix(c, 'J45'));
 }
+// 年差 = 今年 − 出生 AD 年；patientMeta.birthday 是 ROC YYYMMDD 字串。
+// 回傳 null 表示無法判定（沒有出生日）。
+function getEnrollmentYearDiff(patientMeta) {
+  const birthday = String(patientMeta?.birthday || '');
+  if (birthday.length !== 7) return null;
+  const rocYear = parseInt(birthday.substring(0, 3), 10);
+  if (isNaN(rocYear)) return null;
+  const adBirthYear = rocYear + 1911;
+  return new Date().getFullYear() - adBirthYear;
+}
 function getMatchedAsthmaCodes(data, patientMeta = {}) {
   const set = new Set();
-  const age = patientMeta?.age;
-  if (typeof age !== 'number' || age >= 12) return set;
+  const diff = getEnrollmentYearDiff(patientMeta);
+  if (diff === null || diff >= 12) return set;
   for (const c of findAsthmaIcdCodes(data)) set.add(c);
   return set;
 }
 function buildAsthmaBadge(data, patientMeta = {}) {
-  const age = patientMeta?.age;
+  const diff = getEnrollmentYearDiff(patientMeta);
   const codes = findAsthmaIcdCodes(data);
-  console.log('[NHITW Clinic] Asthma check: age=' + age + ', J45 codes=' + JSON.stringify(codes));
-  if (typeof age !== 'number' || age >= 12 || codes.length === 0) return '';
+  console.log('[NHITW Clinic] Asthma check: yearDiff=' + diff + ', J45 codes=' + JSON.stringify(codes));
+  if (diff === null || diff >= 12 || codes.length === 0) return '';
   const shown = codes.slice(0, 8).join(', ');
   const more = codes.length > 8 ? `… (+${codes.length - 8})` : '';
-  const tooltip = `符合中醫氣喘專案：年齡 ${age} 歲 (<12)，曾下氣喘診斷\n命中 ICD: ${shown}${more}`;
-  return `<span class="asthma-badge" title="${esc(tooltip)}">🫁 氣喘專案（${age}歲）</span>`;
+  const tooltip = `符合中醫氣喘專案：收案年−出生年=${diff} (<12)，曾下氣喘診斷\n命中 ICD: ${shown}${more}`;
+  return `<span class="asthma-badge" title="${esc(tooltip)}">🫁 氣喘專案（年差${diff}）</span>`;
 }
 
 // --- ATC5 Classification (matches extension's medicationGroups.js) ---
