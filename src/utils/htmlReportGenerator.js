@@ -25,12 +25,17 @@ export function generateHtmlReport(patientName, patientId, data) {
   const allergyHtml = buildAllergyPanel(data.allergyData?.rObject);
   const surgeryHtml = buildSurgeryPanel(data.surgeryData?.rObject);
   const dischargeHtml = buildDischargePanel(data.dischargeData?.rObject);
+  const adultHealthHtml = buildAdultHealthCheckPanel(data.adultHealthCheckData);
+  const cancerScreeningHtml = buildCancerScreeningPanel(data.cancerScreeningData);
+  const hbcvHtml = buildHbcvPanel(data.hbcvData);
   const acuBadgeHtml = buildAcupunctureBadge(data);
   const cancerBadgeHtml = buildCancerCareBadge(data);
 
   return buildFullHtml(patientName, patientId, dateStr, {
     diagnosisHtml, labPivotHtml, westMedHtml, otherWestMedHtml, chineseMedHtml,
-    imagingHtml, allergyHtml, surgeryHtml, dischargeHtml, acuBadgeHtml, cancerBadgeHtml
+    imagingHtml, allergyHtml, surgeryHtml, dischargeHtml,
+    adultHealthHtml, cancerScreeningHtml, hbcvHtml,
+    acuBadgeHtml, cancerBadgeHtml
   });
 }
 
@@ -924,6 +929,92 @@ function buildDischargePanel(items) {
   return html;
 }
 
+// --- Adult Health Check / Cancer Screening / HBCV data unwrappers ---
+// The same payload arrives in different shapes depending on whether it came
+// through the normalized rObject path, the legacy originalData path, or as a
+// raw direct object. Mirror Overview_*.jsx logic so we accept all of them.
+function unwrapAdult(raw) {
+  if (!raw) return null;
+  if (Array.isArray(raw.rObject) && raw.rObject[0]) return raw.rObject[0];
+  if (raw.originalData?.robject) return raw.originalData.robject;
+  if (raw.result_data) return raw;
+  return null;
+}
+function unwrapCancer(raw) {
+  if (!raw) return null;
+  if (Array.isArray(raw.rObject) && raw.rObject[0]) return raw.rObject[0];
+  if (raw.originalData?.robject) return raw.originalData.robject;
+  if (raw.colorectal || raw.oralMucosa || raw.mammography || raw.papSmears || raw.lungCancer) return raw;
+  return null;
+}
+function unwrapHbcv(raw) {
+  if (!raw) return null;
+  if (Array.isArray(raw.rObject) && raw.rObject[0]) return raw.rObject[0];
+  if (raw.originalData?.robject) return raw.originalData.robject;
+  if (raw.result_data || raw.med_data) return raw;
+  return null;
+}
+
+function buildAdultHealthCheckPanel(raw) {
+  const d = unwrapAdult(raw);
+  if (!d || !Array.isArray(d.result_data) || d.result_data.length === 0) return '';
+  const latest = d.result_data[0];
+  const v = (x) => (x === undefined || x === null || x === '') ? '—' : esc(String(x));
+  return `<div class="hc-title">${v(latest.title || '最近一次')}</div>
+    <div class="hc-row">身高 <b>${v(latest.height)}</b> / 體重 <b>${v(latest.weight)}</b> / BMI <b>${v(latest.bmi)}</b> / 腰圍 <b>${v(latest.waistline)}</b></div>
+    <div class="hc-row">血壓 <b>${v(latest.base_sbp)}/${v(latest.base_ebp)}</b></div>
+    <div class="hc-row">Chol <b>${v(latest.cho)}</b> / TG <b>${v(latest.blod_tg)}</b> / LDL <b>${v(latest.ldl)}</b> / HDL <b>${v(latest.hdl)}</b> / 血糖 <b>${v(latest.s_09005c)}</b></div>
+    <div class="hc-row">BUN <b>${v(latest.urine_bun)}</b> / Cr <b>${v(latest.blod_creat)}</b> / GFR <b>${v(latest.egfr)}</b> / 尿蛋白 <b>${v(latest.urine_protein)}</b></div>
+    <div class="hc-row">GOT <b>${v(latest.sgot)}</b> / GPT <b>${v(latest.sgpt)}</b></div>`;
+}
+
+function buildCancerScreeningPanel(raw) {
+  const d = unwrapCancer(raw);
+  if (!d) return '';
+  const types = [
+    ['colorectal', '糞便潛血'],
+    ['oralMucosa', '口腔黏膜'],
+    ['mammography', '乳房攝影'],
+    ['papSmears', '子宮頸癌'],
+    ['lungCancer', '肺癌篩檢'],
+  ];
+  const rows = [];
+  for (const [key, label] of types) {
+    const sub = d[key]?.subData;
+    if (Array.isArray(sub) && sub.length > 0) {
+      const last = sub[0];
+      const result = last.result || '無資料';
+      const abnormal = result === '異常';
+      const meta = [last.func_date, last.hosp_abbr].filter(Boolean).join(' ');
+      rows.push(`<div class="scr-row ${abnormal ? 'scr-abnormal' : ''}"><span class="scr-label">${esc(label)}</span><span class="scr-result">${esc(result)}</span>${meta ? `<span class="scr-meta">${esc(meta)}</span>` : ''}</div>`);
+    }
+  }
+  if (rows.length === 0) return '';
+  return rows.join('');
+}
+
+function buildHbcvPanel(raw) {
+  const d = unwrapHbcv(raw);
+  if (!d) return '';
+  let html = '';
+  if (Array.isArray(d.result_data) && d.result_data.length > 0) {
+    html += '<div class="hbcv-sec">檢驗結果</div>';
+    for (const r of d.result_data) {
+      const dir = labDirection(r.assay_value, r.consult_value, r.order_code);
+      const cls = dir === 'high' ? 'lab-high' : dir === 'low' ? 'lab-low' : '';
+      html += `<div class="hbcv-row"><span class="hbcv-name">${esc(r.assay_item_name || '')}</span> <span class="${cls}">${esc(r.assay_value || '')}</span> <span class="hbcv-meta">${esc(r.real_inspect_date || '')}</span></div>`;
+    }
+  }
+  if (Array.isArray(d.med_data) && d.med_data.length > 0) {
+    html += '<div class="hbcv-sec">治療藥物</div>';
+    for (const m of d.med_data) {
+      const hosp = m.hosp ? String(m.hosp).split(';')[0] : '';
+      html += `<div class="hbcv-row"><span class="hbcv-name">${esc(m.drug_ing_name || '')}</span> <span class="hbcv-meta">${esc(m.func_date || '')} ${esc(hosp)}</span></div>`;
+    }
+  }
+  return html;
+}
+
 // --- Full HTML ---
 function buildFullHtml(name, id, dateStr, panels) {
   // Build optional small sections for right column
@@ -936,6 +1027,15 @@ function buildFullHtml(name, id, dateStr, panels) {
   }
   if (panels.dischargeHtml) {
     rightExtra += `<div class="panel"><div class="panel-title" onclick="togglePanel(this)">🏥 出院摘要</div><div class="panel-body">${panels.dischargeHtml}</div></div>`;
+  }
+  if (panels.adultHealthHtml) {
+    rightExtra += `<div class="panel"><div class="panel-title" onclick="togglePanel(this)">🩺 成人預防保健</div><div class="panel-body">${panels.adultHealthHtml}</div></div>`;
+  }
+  if (panels.cancerScreeningHtml) {
+    rightExtra += `<div class="panel"><div class="panel-title" onclick="togglePanel(this)">🔬 四癌篩檢</div><div class="panel-body">${panels.cancerScreeningHtml}</div></div>`;
+  }
+  if (panels.hbcvHtml) {
+    rightExtra += `<div class="panel"><div class="panel-title" onclick="togglePanel(this)">🧫 B/C 肝專區</div><div class="panel-body">${panels.hbcvHtml}</div></div>`;
   }
 
   return `<!DOCTYPE html>
@@ -1039,6 +1139,26 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 /* Records */
 .record-item { padding:4px 0; font-size:12px; border-bottom:1px solid #f5f5f5; }
 .record-item:last-child { border-bottom:none; }
+
+/* Adult Health Check */
+.hc-title { font-weight:600; color:#1565c0; font-size:12px; margin-bottom:4px; }
+.hc-row { font-size:12px; padding:2px 0; color:#444; }
+.hc-row b { color:#1a1a1a; font-weight:600; }
+
+/* Cancer Screening */
+.scr-row { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:12px; border-bottom:1px solid #f5f5f5; }
+.scr-row:last-child { border-bottom:none; }
+.scr-label { font-weight:600; color:#444; min-width:64px; }
+.scr-result { color:#2e7d32; font-weight:600; }
+.scr-meta { font-size:10px; color:#999; margin-left:auto; }
+.scr-row.scr-abnormal .scr-result { color:#d32f2f; }
+
+/* HBCV */
+.hbcv-sec { font-weight:600; color:#1565c0; font-size:11px; margin:6px 0 2px; }
+.hbcv-sec:first-child { margin-top:0; }
+.hbcv-row { display:flex; align-items:center; gap:6px; padding:3px 0; font-size:12px; border-bottom:1px solid #fafafa; }
+.hbcv-name { flex:1; }
+.hbcv-meta { font-size:10px; color:#999; }
 
 .empty { color:#999; font-size:12px; padding:8px 0; }
 

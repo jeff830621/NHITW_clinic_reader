@@ -15,6 +15,9 @@ let currentSessionData = {
   dischargeData: null,   // New
   medDaysData: null,     // New
   patientSummaryData: null, // Patient summary data
+  adultHealthCheckData: null, // 成人預防保健
+  cancerScreeningData: null,  // 四癌篩檢
+  hbcvData: null,             // B、C 型肝炎專區
   token: null,
   currentUserSession: null,
   patientName: null,
@@ -182,7 +185,10 @@ const DATA_TYPE_TO_STORAGE_KEY = {
   'surgery': 'surgeryData',
   'discharge': 'dischargeData',
   'medDays': 'medDaysData',
-  'patientSummary': 'patientSummaryData'
+  'patientSummary': 'patientSummaryData',
+  'adultHealthCheck': 'adultHealthCheckData',
+  'cancerScreening': 'cancerScreeningData',
+  'hbcvdata': 'hbcvData'
 };
 
 // 動作與處理函數的映射
@@ -276,6 +282,9 @@ const ACTION_HANDLERS = new Map([
   ['saveDischargeData', saveDataHandler('discharge')],
   ['saveMedDaysData', saveDataHandler('medDays')],
   ['savePatientSummaryData', saveDataHandler('patientSummary')],
+  ['saveAdultHealthCheckData', saveDataHandler('adultHealthCheck')],
+  ['saveCancerScreeningData', saveDataHandler('cancerScreening')],
+  ['saveHbcvdata', saveDataHandler('hbcvdata')],
   
   ['saveToken', (message, sender, sendResponse) => {
     currentSessionData.token = message.token;
