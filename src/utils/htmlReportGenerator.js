@@ -32,13 +32,14 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
   const acuBadgeHtml = buildAcupunctureBadge(data);
   const cancerBadgeHtml = buildCancerCareBadge(data);
   const asthmaBadgeHtml = buildAsthmaBadge(data, patientMeta);
+  const ckdBadgeHtml = buildCkdBadge(data, patientMeta);
   const patientMetaLine = formatPatientMeta(patientMeta);
 
   return buildFullHtml(patientName, patientId, dateStr, {
     diagnosisHtml, labPivotHtml, westMedHtml, otherWestMedHtml, chineseMedHtml,
     imagingHtml, allergyHtml, surgeryHtml, dischargeHtml,
     adultHealthHtml, cancerScreeningHtml, hbcvHtml,
-    acuBadgeHtml, cancerBadgeHtml, asthmaBadgeHtml,
+    acuBadgeHtml, cancerBadgeHtml, asthmaBadgeHtml, ckdBadgeHtml,
     patientMetaLine
   });
 }
@@ -750,6 +751,72 @@ function buildAsthmaBadge(data, patientMeta = {}) {
   return `<span class="asthma-badge" title="${esc(tooltip)}">🫁 氣喘專案（年差${diff}）</span>`;
 }
 
+// --- 中醫慢性腎臟病門診加強照護方案 ---
+// eGFR is computed via CKD-EPI 2021 from the latest serum Cr + patient age/sex.
+// Proteinuria check piggy-backs on the lab's own reference range (labDirection
+// returns 'high' for any UPCR / UACR row above its consult_value upper bound),
+// which sidesteps the messy unit issue across labs (some report raw mg/dL urine
+// protein, some report mg/g ratio — the lab knows its own thresholds either
+// way, so its 'high' flag is the most reliable signal).
+function getLatestLabValue(labData, canonical) {
+  if (!labData?.rObject) return null;
+  let best = null;
+  for (const l of labData.rObject) {
+    if (canonicalLabName(l) !== canonical) continue;
+    const d = parseDate(l.real_inspect_date || l.recipe_date || '');
+    if (!d) continue;
+    if (!best || d > best.date) best = { date: d, value: l.assay_value, code: l.order_code || '', ref: l.consult_value || '' };
+  }
+  return best;
+}
+function findAbnormalProteinuria(labData) {
+  if (!labData?.rObject) return null;
+  // Pick the LATEST UPCR or UACR record per name, then test it
+  const latestByName = {};
+  for (const l of labData.rObject) {
+    const n = canonicalLabName(l);
+    if (n !== 'UPCR' && n !== 'UACR') continue;
+    const d = parseDate(l.real_inspect_date || l.recipe_date || '');
+    if (!d) continue;
+    if (!latestByName[n] || d > latestByName[n].date) {
+      latestByName[n] = { date: d, value: l.assay_value, ref: l.consult_value || '', code: l.order_code || '', name: n };
+    }
+  }
+  for (const rec of Object.values(latestByName)) {
+    if (labDirection(rec.value, rec.ref, rec.code) === 'high') return rec;
+  }
+  return null;
+}
+function buildCkdBadge(data, patientMeta = {}) {
+  const cr = getLatestLabValue(data?.labData, 'Cr');
+  if (!cr) return '';
+  const scr = parseFloat(cr.value);
+  if (!(scr > 0)) return '';
+  const age = patientMeta?.age;
+  if (typeof age !== 'number' || age <= 0 || !patientMeta?.sex) return '';
+  const isFemale = isFemaleSex(patientMeta.sex);
+  const egfr = computeEgfr(scr, age, isFemale);
+  console.log('[NHITW Clinic] CKD check: Cr=' + scr + ' (' + cr.date + ') age=' + age + ' female=' + isFemale + ' → eGFR=' + (egfr != null ? egfr.toFixed(1) : 'null'));
+  if (egfr == null) return '';
+  const stage = ckdStage(egfr);
+  if (stage === '正常') return '';
+
+  // <60 (G3a/b/4/5) — eligible regardless of proteinuria
+  if (egfr < 60) {
+    const tip = `eGFR ${egfr.toFixed(1)} mL/min/1.73m² (${stage})，符合中醫慢性腎臟病門診加強照護計畫\n依據：Cr=${scr} mg/dL @ ${cr.date}\n需主診斷 ICD-10 N18.2-N18.6`;
+    return `<span class="ckd-badge ckd-eligible" title="${esc(tip)}">🫘 CKD 收案 (${stage})</span>`;
+  }
+
+  // G2 (60-89.9) — needs proteinuria/hematuria
+  const prot = findAbnormalProteinuria(data?.labData);
+  if (prot) {
+    const tip = `eGFR ${egfr.toFixed(1)} (${stage}) + ${prot.name}=${prot.value} 超標 (參考 ${prot.ref || '無'}) @ ${prot.date}\n符合 stage 2 收案條件 — 需主診斷 ICD-10 N18.2-N18.6`;
+    return `<span class="ckd-badge ckd-eligible" title="${esc(tip)}">🫘 CKD 收案 (stage 2 + 蛋白尿)</span>`;
+  }
+  const tip = `eGFR ${egfr.toFixed(1)} (${stage})；stage 2 收案需 UPCR≥150 mg/g、UACR≥30 mg/g（糖尿病）或血尿，請臨床判斷\n依據：Cr=${scr} mg/dL @ ${cr.date}`;
+  return `<span class="ckd-badge ckd-watch" title="${esc(tip)}">🫘 CKD 待確認 (stage 2)</span>`;
+}
+
 // --- ATC5 Classification (matches extension's medicationGroups.js) ---
 const ATC5_GROUPS = {
   NSAID: ['M01AA', 'M01AB', 'M01AC', 'M01AE', 'M01AG', 'M01AH'],
@@ -1198,6 +1265,9 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .acu-badge.acu-moderate { background:#f57c00; color:#fff; }
 .cancer-badge { display:inline-block; margin-left:8px; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; vertical-align:middle; cursor:help; background:#7b1fa2; color:#fff; }
 .asthma-badge { display:inline-block; margin-left:8px; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; vertical-align:middle; cursor:help; background:#0288d1; color:#fff; }
+.ckd-badge { display:inline-block; margin-left:8px; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; vertical-align:middle; cursor:help; color:#fff; }
+.ckd-badge.ckd-eligible { background:#c62828; }
+.ckd-badge.ckd-watch    { background:#ed6c02; }
 
 .layout { display:grid; grid-template-columns:1fr 1.5fr 1fr; gap:12px; padding:12px; min-height:calc(100vh - 60px); }
 
@@ -1321,7 +1391,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 
 <div class="header">
   <div>
-    <h1>${esc(name)}${panels.acuBadgeHtml || ''}${panels.cancerBadgeHtml || ''}${panels.asthmaBadgeHtml || ''}</h1>
+    <h1>${esc(name)}${panels.acuBadgeHtml || ''}${panels.cancerBadgeHtml || ''}${panels.asthmaBadgeHtml || ''}${panels.ckdBadgeHtml || ''}</h1>
     <div class="meta">${esc(id)}${panels.patientMetaLine ? ' ｜ ' + esc(panels.patientMetaLine) : ''} ｜ ${esc(dateStr)}</div>
   </div>
   <div class="actions">
