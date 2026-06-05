@@ -231,6 +231,27 @@ function canonicalLabName(l) {
   return (l.assay_item_name || l.order_name || l.order_code || '?').trim();
 }
 
+// Fallback units when the NHI lab response omits unit_data for a known test.
+// Keyed by canonical name. Used only when item.unit ends up empty.
+const DEFAULT_UNITS = {
+  // CBC / differential
+  Hb:'g/dL', WBC:'/uL', RBC:'10^6/uL', Platelet:'10^3/uL', HCT:'%',
+  MCV:'fL', MCH:'pg', MCHC:'g/dL', RDW:'%', MPV:'fL',
+  Neutrophil:'%', Lymphocyte:'%', Monocyte:'%', Eosinophil:'%', Basophil:'%',
+  // Biochem
+  BUN:'mg/dL', Cr:'mg/dL', 'U.A':'mg/dL', Glucose:'mg/dL', HbA1c:'%',
+  Alb:'g/dL', 'T-Bil':'mg/dL', 'D-Bil':'mg/dL',
+  GOT:'U/L', GPT:'U/L', 'ALK-P':'U/L', Amylase:'U/L', Lipase:'U/L',
+  // Lipids
+  Chol:'mg/dL', TG:'mg/dL', HDL:'mg/dL', LDL:'mg/dL',
+  // Electrolytes
+  Na:'mmol/L', K:'mmol/L', Cl:'mmol/L',
+  // Inflammation
+  CRP:'mg/dL',
+  // Kidney
+  GFR:'mL/min', UPCR:'mg/g', UACR:'mg/g',
+};
+
 // --- Focused Lab Tests (matches extension's labTests.js DEFAULT_LAB_TESTS) ---
 const FOCUSED_LAB_TESTS = [
   { orderCode: '08011C', name: 'Hb', enabled: true, subItem: 'Hb' },
@@ -336,7 +357,8 @@ function buildLabPivotPanel(items, patientMeta = {}) {
   let tbody = '';
   for (const name of rowNames) {
     const item = itemMap[name];
-    const unitLabel = item.unit ? `<span class="lab-unit">${esc(item.unit)}</span>` : '';
+    const unit = item.unit || DEFAULT_UNITS[name] || '';
+    const unitLabel = unit ? `<span class="lab-unit">${esc(unit)}</span>` : '';
     tbody += `<tr><td class="lab-item-name" title="${esc(item.code)}">${esc(name)}${unitLabel}</td>`;
     for (const d of dates) {
       const cell = item.dates[d];
