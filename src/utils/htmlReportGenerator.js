@@ -32,13 +32,38 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
   const acuBadgeHtml = buildAcupunctureBadge(data);
   const cancerBadgeHtml = buildCancerCareBadge(data);
   const asthmaBadgeHtml = buildAsthmaBadge(data, patientMeta);
+  const patientMetaLine = formatPatientMeta(patientMeta);
 
   return buildFullHtml(patientName, patientId, dateStr, {
     diagnosisHtml, labPivotHtml, westMedHtml, otherWestMedHtml, chineseMedHtml,
     imagingHtml, allergyHtml, surgeryHtml, dischargeHtml,
     adultHealthHtml, cancerScreeningHtml, hbcvHtml,
-    acuBadgeHtml, cancerBadgeHtml, asthmaBadgeHtml
+    acuBadgeHtml, cancerBadgeHtml, asthmaBadgeHtml,
+    patientMetaLine
   });
+}
+
+// Format patient demographics for the header meta line, e.g.:
+//   "40歲 女 民75/08/15"
+// Skips parts that aren't available.
+function formatPatientMeta(m) {
+  if (!m) return '';
+  const parts = [];
+  if (typeof m.age === 'number' && m.age >= 0) parts.push(`${m.age}歲`);
+  if (m.sex) {
+    const s = String(m.sex).trim().toUpperCase();
+    if (s === 'F' || s === 'FEMALE' || s === '2' || s === '女') parts.push('女');
+    else if (s === 'M' || s === 'MALE' || s === '1' || s === '男') parts.push('男');
+  }
+  // ROC YYYMMDD → 民YYY/MM/DD (leading zeros trimmed on year)
+  if (m.birthday && String(m.birthday).length === 7) {
+    const b = String(m.birthday);
+    const yyy = parseInt(b.substring(0, 3), 10);
+    const mm = b.substring(3, 5);
+    const dd = b.substring(5, 7);
+    if (!isNaN(yyy)) parts.push(`民${yyy}/${mm}/${dd}`);
+  }
+  return parts.join(' ');
 }
 
 export function getReportFilename(patientName, date) {
@@ -355,16 +380,19 @@ function computeEgfr(scr, age, isFemale) {
   return 142 * Math.pow(A, -0.302) * Math.pow(B, -1.200) * Math.pow(0.9938, age);
 }
 function ckdStage(egfr) {
-  if (egfr >= 90) return 'G1';
+  // eGFR ≥ 90 alone isn't CKD diagnosis — call it 正常 instead of G1 to avoid
+  // alarming clinicians/patients about a perfectly healthy kidney.
+  if (egfr >= 90) return '正常';
   if (egfr >= 60) return 'G2';
   if (egfr >= 45) return 'G3a';
   if (egfr >= 30) return 'G3b';
   if (egfr >= 15) return 'G4';
   return 'G5';
 }
-// Colour cells by stage: G1/G2 normal black; G3+ progressively redder
+// Colour cells by stage: 正常 green; G2 default; G3+ progressively redder
 function ckdStageStyle(stage) {
   switch (stage) {
+    case '正常': return 'color:#2e7d32;font-weight:bold';
     case 'G3a': return 'color:#f57c00;font-weight:bold';
     case 'G3b': return 'color:#e65100;font-weight:bold';
     case 'G4':  return 'color:#d32f2f;font-weight:bold';
@@ -1294,7 +1322,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 <div class="header">
   <div>
     <h1>${esc(name)}${panels.acuBadgeHtml || ''}${panels.cancerBadgeHtml || ''}${panels.asthmaBadgeHtml || ''}</h1>
-    <div class="meta">${esc(id)} ｜ ${esc(dateStr)}</div>
+    <div class="meta">${esc(id)}${panels.patientMetaLine ? ' ｜ ' + esc(panels.patientMetaLine) : ''} ｜ ${esc(dateStr)}</div>
   </div>
   <div class="actions">
     <a onclick="expandAll()">全部展開</a>
