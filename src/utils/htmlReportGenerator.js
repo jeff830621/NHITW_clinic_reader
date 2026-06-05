@@ -18,7 +18,7 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
 
   // Build each panel
   const diagnosisHtml = buildDiagnosisPanel(data, highlightSets);
-  const labPivotHtml = buildLabPivotPanel(data.labData?.rObject);
+  const labPivotHtml = buildLabPivotPanel(data.labData?.rObject, patientMeta);
   const westMedHtml = buildWestMedPanel(data.medicationData?.rObject, 100);
   const otherWestMedHtml = buildOtherWestMedPanel(data.medicationData?.rObject, 100);
   const chineseMedHtml = buildChineseMedPanel(data.chinesemedData?.rObject);
@@ -230,7 +230,7 @@ const FOCUSED_LAB_TESTS = [
 // --- Lab Pivot Table — ALL tests within tracking window, newest column leftmost ---
 // User asked: don't filter to focused tests, don't slice dates, include year,
 // high values in red / low values in green.
-function buildLabPivotPanel(items) {
+function buildLabPivotPanel(items, patientMeta = {}) {
   if (!items || items.length === 0) return '<p class="empty">無檢驗資料</p>';
   const LAB_TRACKING_DAYS = 180;
 
@@ -263,12 +263,38 @@ function buildLabPivotPanel(items) {
     itemMap[name].dates[date] = { value, dir: labDirection(value, ref, code), ref: refDisplay(ref, code) };
   }
 
+  // Synthesize an eGFR(計算) row from Cr + age + sex (CKD-EPI 2021 race-free).
+  // The lab's own GFR (09015C) frequently comes back as 0 / empty, so we
+  // compute ours alongside it. Cells get CKD-stage badge + color.
+  if (itemMap['Cr'] && patientMeta?.age && patientMeta?.sex) {
+    const age = patientMeta.age;
+    const isFemale = isFemaleSex(patientMeta.sex);
+    const egfrRow = { name: 'eGFR(計算)', code: '', unit: 'mL/min/1.73m²', dates: {}, order: -0.5, synthetic: 'egfr' };
+    for (const [date, crCell] of Object.entries(itemMap['Cr'].dates)) {
+      const scr = parseFloat(crCell.value);
+      if (!isNaN(scr) && scr > 0) {
+        const egfr = computeEgfr(scr, age, isFemale);
+        if (egfr != null) {
+          const stage = ckdStage(egfr);
+          egfrRow.dates[date] = {
+            value: egfr.toFixed(1), egfr, stage,
+            ref: 'CKD-EPI 2021 ≥60 為正常',
+          };
+        }
+      }
+    }
+    if (Object.keys(egfrRow.dates).length > 0) itemMap['eGFR(計算)'] = egfrRow;
+  }
+
   // Newest column leftmost
   const dates = [...dateSet].sort((a, b) => b.localeCompare(a));
 
-  // Focused tests first (in defined order), then others by first-seen order
+  // Focused tests first (in defined order), then others by first-seen order.
+  // eGFR(計算) slots between Cr and GFR (Cr index + 0.5).
   const focusedOrder = new Map();
   FOCUSED_LAB_TESTS.forEach((t, i) => { if (!focusedOrder.has(t.name)) focusedOrder.set(t.name, i); });
+  const crIdx = focusedOrder.get('Cr');
+  if (crIdx != null) focusedOrder.set('eGFR(計算)', crIdx + 0.5);
   const rowNames = Object.keys(itemMap).sort((a, b) => {
     const fa = focusedOrder.has(a) ? focusedOrder.get(a) : 1000 + itemMap[a].order;
     const fb = focusedOrder.has(b) ? focusedOrder.get(b) : 1000 + itemMap[b].order;
@@ -289,9 +315,16 @@ function buildLabPivotPanel(items) {
     for (const d of dates) {
       const cell = item.dates[d];
       if (cell) {
-        const cls = cell.dir === 'high' ? 'lab-high' : cell.dir === 'low' ? 'lab-low' : '';
-        const tip = cell.ref ? `參考值 ${cell.ref}` : '';
-        tbody += `<td class="${cls}" title="${esc(tip)}">${esc(cell.value)}</td>`;
+        if (item.synthetic === 'egfr' && cell.stage) {
+          // Color the cell by CKD stage instead of using lab-low (which is green)
+          const style = ckdStageStyle(cell.stage);
+          const tip = `${cell.stage} · CKD-EPI 2021`;
+          tbody += `<td style="${style}" title="${esc(tip)}">${esc(cell.value)}<span class="ckd-stage">${esc(cell.stage)}</span></td>`;
+        } else {
+          const cls = cell.dir === 'high' ? 'lab-high' : cell.dir === 'low' ? 'lab-low' : '';
+          const tip = cell.ref ? `參考值 ${cell.ref}` : '';
+          tbody += `<td class="${cls}" title="${esc(tip)}">${esc(cell.value)}</td>`;
+        }
       } else {
         tbody += '<td class="no-data">-</td>';
       }
@@ -301,6 +334,43 @@ function buildLabPivotPanel(items) {
 
   return `<div class="lab-scroll"><table class="lab-pivot"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
   <div class="tracking-note">${LAB_TRACKING_DAYS} 天內 · ${rowNames.length} 項 × ${dates.length} 次</div>`;
+}
+
+// --- CKD-EPI 2021 (race-free) — ported from the user's ckd-calculator ---
+// Detect female from various JWT/UI representations of UserSex.
+function isFemaleSex(s) {
+  const v = String(s || '').trim().toUpperCase();
+  return v === 'F' || v === 'FEMALE' || v === '2' || v === '女';
+}
+// Inputs: Scr in mg/dL, age in years, isFemale boolean. Returns eGFR or null.
+function computeEgfr(scr, age, isFemale) {
+  if (!(scr > 0) || !(age > 0)) return null;
+  const k = isFemale ? 0.7 : 0.9;
+  const ratio = scr / k;
+  const A = Math.min(ratio, 1);
+  const B = Math.max(ratio, 1);
+  if (isFemale) {
+    return 142 * Math.pow(A, -0.241) * Math.pow(B, -1.200) * Math.pow(0.9938, age) * 1.012;
+  }
+  return 142 * Math.pow(A, -0.302) * Math.pow(B, -1.200) * Math.pow(0.9938, age);
+}
+function ckdStage(egfr) {
+  if (egfr >= 90) return 'G1';
+  if (egfr >= 60) return 'G2';
+  if (egfr >= 45) return 'G3a';
+  if (egfr >= 30) return 'G3b';
+  if (egfr >= 15) return 'G4';
+  return 'G5';
+}
+// Colour cells by stage: G1/G2 normal black; G3+ progressively redder
+function ckdStageStyle(stage) {
+  switch (stage) {
+    case 'G3a': return 'color:#f57c00;font-weight:bold';
+    case 'G3b': return 'color:#e65100;font-weight:bold';
+    case 'G4':  return 'color:#d32f2f;font-weight:bold';
+    case 'G5':  return 'color:#922;font-weight:bold';
+    default:    return 'font-weight:bold';
+  }
 }
 
 // Friendly reference range text for the cell tooltip (e.g. "12-16", "<140", ">40")
@@ -1137,6 +1207,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .lab-pivot td { padding:5px 8px; text-align:center; border-bottom:1px solid #f0f0f0; }
 .lab-pivot .lab-item-name { text-align:left; font-weight:600; white-space:nowrap; position:sticky; left:0; background:#fff; z-index:1; }
 .lab-pivot .lab-unit { color:#999; font-weight:400; font-size:10px; margin-left:4px; }
+.lab-pivot .ckd-stage { display:inline-block; margin-left:4px; padding:1px 5px; border-radius:8px; background:#f5f5f5; color:inherit; font-size:9px; font-weight:600; vertical-align:middle; }
 .lab-pivot .lab-item-col { text-align:left; position:sticky; left:0; background:#f5f7fa; z-index:2; }
 .lab-pivot .no-data { color:#ccc; }
 .lab-pivot .lab-high { color:#d32f2f; font-weight:bold; }
