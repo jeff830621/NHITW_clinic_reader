@@ -351,7 +351,7 @@ function buildLabPivotPanel(items, patientMeta = {}) {
   if (dates.length === 0 || rowNames.length === 0) return '<p class="empty">無檢驗資料</p>';
 
   let thead = '<tr><th class="lab-item-col">項目</th>';
-  for (const d of dates) thead += `<th class="lab-date-col">${esc(fullDate(d))}</th>`;
+  for (const d of dates) thead += `<th class="lab-date-col" data-short="${esc(shortDate(d))}" onclick="copyLabColumn(this)" title="點擊複製此次抽血數據">${esc(fullDate(d))}</th>`;
   thead += '</tr>';
 
   let tbody = '';
@@ -359,7 +359,9 @@ function buildLabPivotPanel(items, patientMeta = {}) {
     const item = itemMap[name];
     const unit = item.unit || DEFAULT_UNITS[name] || '';
     const unitLabel = unit ? `<span class="lab-unit">${esc(unit)}</span>` : '';
-    tbody += `<tr><td class="lab-item-name" title="${esc(item.code)}">${esc(name)}${unitLabel}</td>`;
+    // Strip "(計算)" suffix etc. for the copy payload (clinically eGFR is enough).
+    const copyName = name.replace(/\(計算\)/g, '').trim() || name;
+    tbody += `<tr data-item="${esc(copyName)}"><td class="lab-item-name" title="${esc(item.code)}">${esc(name)}${unitLabel}</td>`;
     for (const d of dates) {
       const cell = item.dates[d];
       if (cell) {
@@ -367,11 +369,11 @@ function buildLabPivotPanel(items, patientMeta = {}) {
           // Color the cell by CKD stage instead of using lab-low (which is green)
           const style = ckdStageStyle(cell.stage);
           const tip = `${cell.stage} · CKD-EPI 2021`;
-          tbody += `<td style="${style}" title="${esc(tip)}">${esc(cell.value)}<span class="ckd-stage">${esc(cell.stage)}</span></td>`;
+          tbody += `<td style="${style}" title="${esc(tip)}" data-val="${esc(cell.value)}">${esc(cell.value)}<span class="ckd-stage">${esc(cell.stage)}</span></td>`;
         } else {
           const cls = cell.dir === 'high' ? 'lab-high' : cell.dir === 'low' ? 'lab-low' : '';
           const tip = cell.ref ? `參考值 ${cell.ref}` : '';
-          tbody += `<td class="${cls}" title="${esc(tip)}">${esc(cell.value)}</td>`;
+          tbody += `<td class="${cls}" title="${esc(tip)}" data-val="${esc(cell.value)}">${esc(cell.value)}</td>`;
         }
       } else {
         tbody += '<td class="no-data">-</td>';
@@ -1324,6 +1326,9 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .lab-scroll { overflow-x:auto; max-width:100%; }
 .lab-pivot { border-collapse:collapse; font-size:12px; white-space:nowrap; }
 .lab-pivot th { background:#f5f7fa; padding:6px 8px; text-align:center; border-bottom:2px solid #dee2e6; font-weight:600; font-size:11px; position:sticky; top:0; }
+.lab-pivot th.lab-date-col { cursor:pointer; user-select:none; transition: background 0.15s; }
+.lab-pivot th.lab-date-col:hover { background:#e3f2fd; color:#1565c0; }
+.lab-pivot th.lab-date-col.copied { background:#a5d6a7 !important; color:#1b5e20; }
 .lab-pivot td { padding:5px 8px; text-align:center; border-bottom:1px solid #f0f0f0; }
 .lab-pivot .lab-item-name { text-align:left; font-weight:600; white-space:nowrap; position:sticky; left:0; background:#fff; z-index:1; }
 .lab-pivot .lab-unit { color:#999; font-weight:400; font-size:10px; margin-left:4px; }
@@ -1477,6 +1482,45 @@ function expandAll() {
 function collapseAll() {
   document.querySelectorAll('.panel-title').forEach(function(t) { t.classList.add('collapsed'); });
   document.querySelectorAll('.panel-body').forEach(function(b) { b.classList.add('collapsed'); });
+}
+function copyLabColumn(th) {
+  var idx = th.cellIndex;
+  var shortDate = th.dataset.short || '';
+  var table = th.closest('table');
+  if (!table) return;
+  var parts = [];
+  table.querySelectorAll('tbody tr').forEach(function(tr) {
+    var item = tr.dataset.item;
+    if (!item) return;
+    var cell = tr.cells[idx];
+    if (!cell) return;
+    var val = cell.dataset.val;
+    if (val == null || val === '') return;
+    parts.push(item + ':' + val);
+  });
+  if (parts.length === 0) return;
+  var text = (shortDate ? shortDate + ' ' : '') + parts.join(' ');
+  function flash() {
+    th.classList.add('copied');
+    setTimeout(function() { th.classList.remove('copied'); }, 900);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(flash, function() {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position='fixed'; ta.style.left='-9999px';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch(_) {}
+      document.body.removeChild(ta);
+      flash();
+    });
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position='fixed'; ta.style.left='-9999px';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch(_) {}
+    document.body.removeChild(ta);
+    flash();
+  }
 }
 </script>
 </body>
