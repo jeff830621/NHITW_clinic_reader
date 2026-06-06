@@ -24,6 +24,14 @@ let currentSessionData = {
   patientIdFromToken: null
 };
 
+// Tracks the tab whose API activity last fed currentSessionData. The auto-
+// export uses this to ask getPatientInfo from the *correct* tab, instead of
+// chrome.tabs.query()[0] which could be a stale NHI tab left open on a
+// previous patient (root cause of the "files all named after one patient"
+// bug — wrong tab returns wrong JWT, then we overwrote the good saveToken
+// value with the stale one).
+let _activePatientTabId = -1;
+
 // Patient identity (name, ID, token) is set by saveToken and should survive
 // session-data clears. Otherwise a saveToken that arrives *before* the
 // content-script's clearSessionData/userSessionChanged message gets wiped,
@@ -82,23 +90,43 @@ async function autoExportToSharedFolder() {
     const sharedFolder = settings.sharedFolder || {};
     if (!sharedFolder.enabled) return;
 
-    // Ask content script for fresh patient info right now — sessionStorage
-    // JWT is the same source the popup UI uses, so if the popup can show the
-    // name, this call will return it. This bypasses any earlier saveToken
-    // race or empty-string snafu. Also returns age + sex (needed by the
-    // asthma / CKD project badges).
+    // Ask content script for fresh patient info from the SPECIFIC tab whose
+    // API activity triggered this export (tracked via _activePatientTabId).
+    // Querying chrome.tabs.query({url:'.../*'})[0] is unsafe — Chrome may
+    // return a stale NHI tab the doctor left open on a previous patient,
+    // and that tab's JWT would mis-identify the current export. Fall back
+    // to active NHI tab only if the tracked tab is gone (closed).
     let patientMeta = { age: null, sex: '', birthday: '' };
-    try {
-      const tabs = await chrome.tabs.query({ url: 'https://medcloud2.nhi.gov.tw/*' });
-      if (tabs.length > 0) {
-        const fresh = await chrome.tabs.sendMessage(tabs[0].id, { action: 'getPatientInfo' });
-        if (fresh?.name) currentSessionData.patientName = fresh.name;
-        if (fresh?.id) currentSessionData.patientIdFromToken = fresh.id;
-        if (fresh) patientMeta = { age: fresh.age ?? null, sex: fresh.sex || '', birthday: fresh.birthday || '' };
-        console.log('[NHITW Clinic] Fresh patient info from tab:', fresh);
+    let fresh = null;
+    let targetTabId = _activePatientTabId;
+    if (targetTabId > 0) {
+      try {
+        fresh = await chrome.tabs.sendMessage(targetTabId, { action: 'getPatientInfo' });
+        console.log(`[NHITW Clinic] Fresh patient info from tracked tab ${targetTabId}:`, fresh);
+      } catch (e) {
+        console.warn(`[NHITW Clinic] Tracked tab ${targetTabId} unreachable: ${e.message}, falling back`);
+        targetTabId = -1;
       }
-    } catch (e) {
-      console.warn('[NHITW Clinic] Failed to get fresh patient info:', e.message);
+    }
+    if (!fresh) {
+      try {
+        // Last-resort fallback: prefer the active NHI tab, never just tabs[0]
+        const tabs = await chrome.tabs.query({ url: 'https://medcloud2.nhi.gov.tw/*' });
+        const active = tabs.find(t => t.active) || tabs[0];
+        if (active) {
+          fresh = await chrome.tabs.sendMessage(active.id, { action: 'getPatientInfo' });
+          console.log(`[NHITW Clinic] Fresh patient info from active fallback tab ${active.id}:`, fresh);
+        }
+      } catch (e) {
+        console.warn('[NHITW Clinic] Fallback getPatientInfo also failed:', e.message);
+      }
+    }
+    // Atomic update: (name, id) move together. Only trust fresh if it has an
+    // id — empty responses leave the cached saveToken value intact.
+    if (fresh?.id) {
+      currentSessionData.patientIdFromToken = fresh.id;
+      currentSessionData.patientName = fresh.name || fresh.id;
+      patientMeta = { age: fresh.age ?? null, sex: fresh.sex || '', birthday: fresh.birthday || '' };
     }
 
     let patientId = currentSessionData.patientIdFromToken;
@@ -162,7 +190,7 @@ Object.entries(API_ENDPOINTS).forEach(([type, endpoint]) => {
   chrome.webRequest.onBeforeRequest.addListener(
     function(details) {
       if (details.method === "GET" && details.url.includes(endpoint)) {
-        // console.log(`Detected ${type} API request:`, details.url);
+        if (details.tabId > 0) _activePatientTabId = details.tabId;
         chrome.tabs.sendMessage(details.tabId, {
           action: "apiCallDetected",
           url: details.url,
@@ -304,13 +332,20 @@ const ACTION_HANDLERS = new Map([
   ['saveHbcvdata', saveDataHandler('hbcvdata')],
   
   ['saveToken', (message, sender, sendResponse) => {
+    // Track which tab "owns" the current patient session so the export's
+    // getPatientInfo re-query asks the right place (not chrome.tabs[0]).
+    if (sender?.tab?.id) _activePatientTabId = sender.tab.id;
     currentSessionData.token = message.token;
     currentSessionData.currentUserSession = message.userSession || currentSessionData.currentUserSession;
-    // Patient name and ID decoded by content script from JWT
-    if (message.patientName) currentSessionData.patientName = message.patientName;
-    if (message.patientIdFromToken) currentSessionData.patientIdFromToken = message.patientIdFromToken;
-    console.log(`[NHITW Clinic] saveToken received - Name: ${message.patientName}, ID: ${message.patientIdFromToken}`);
-    // Token contains patient name — also trigger export schedule
+    // Update (name, id) atomically — never mix a new ID with a stale name.
+    // When the doctor switches patients, the new saveToken brings the new ID;
+    // we wipe the old name in the same step so a later half-fresh getPatientInfo
+    // can't leave us with patient B's ID labelled as patient A's name.
+    if (message.patientIdFromToken) {
+      currentSessionData.patientIdFromToken = message.patientIdFromToken;
+      currentSessionData.patientName = message.patientName || message.patientIdFromToken;
+    }
+    console.log(`[NHITW Clinic] saveToken from tab ${sender?.tab?.id ?? '?'} - Name: ${message.patientName}, ID: ${message.patientIdFromToken}`);
     scheduleExport();
     sendResponse({ status: "token_saved" });
   }],
