@@ -7,8 +7,8 @@ echo.
 
 set "INSTALL_DIR=C:\nhitw-host"
 
-set /p "SHARED_FOLDER=Enter shared folder path (default: C:\nhitw-data): "
-if "!SHARED_FOLDER!"=="" set "SHARED_FOLDER=C:\nhitw-data"
+set /p "SHARED_FOLDER=Enter shared folder path (default: \\kt-server\kthis\Chart): "
+if "!SHARED_FOLDER!"=="" set "SHARED_FOLDER=\\kt-server\kthis\Chart"
 
 set "DEFAULT_EXT_ID=kilmdgbkklopaopdfahekedadkmfpfhk"
 set /p "EXT_ID=Enter Chrome extension ID (default: %DEFAULT_EXT_ID%): "
