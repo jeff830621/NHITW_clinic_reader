@@ -224,10 +224,12 @@ const LAB_ALIAS_LOOKUP = (() => {
   return m;
 })();
 
-// Urine-sample tag. Whole-word "urine"/"urinary" + Chinese "尿液" + "(尿)"
-// catches the common ways labs label urine analytes WITHOUT false-positiving
-// on benign Chinese names like 尿酸 (uric acid, blood) or 尿素氮 (BUN, blood).
-const URINE_HINT = /\burine\b|\burinary\b|尿液|\(\s*尿\s*\)|（\s*尿\s*）/i;
+// Urine-sample tag. Catches the common ways labs label urine analytes
+// WITHOUT false-positiving on benign Chinese compounds (尿酸 uric acid,
+// 尿素氮 BUN) — those start with 尿 directly, no separator. The Chinese
+// "[、，]尿" pattern catches 肌酐、尿 / 肌酸酐，尿 etc. where 尿 is appended
+// as a specimen marker after the analyte name.
+const URINE_HINT = /\burine\b|\burinary\b|尿液|\(\s*尿\s*\)|（\s*尿\s*）|[、，]\s*尿/i;
 
 // Pull the upper bound out of an NHI consult_value string. Handles:
 //   "[0.6][1.3]"  (NHI canonical bracketed format)
