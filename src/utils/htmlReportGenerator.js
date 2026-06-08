@@ -336,14 +336,11 @@ function buildLabPivotPanel(items, patientMeta = {}) {
   if (!items || items.length === 0) return '<p class="empty">無檢驗資料</p>';
   const LAB_TRACKING_DAYS = 180;
 
-  // One-time dump of the first record's keys so we can confirm whether NHI
-  // ever supplies a dedicated specimen/sample-type field that would be more
-  // reliable than parsing 'Urine' out of assay_item_name strings. Look in
-  // the browser DevTools console for the [NHITW Clinic][debug] line.
-  if (items[0] && typeof console !== 'undefined') {
-    console.log('[NHITW Clinic][debug] lab record fields:', Object.keys(items[0]).sort());
-    console.log('[NHITW Clinic][debug] sample record:', items[0]);
-  }
+  // Debug payload is embedded as an HTML comment at the end of this panel
+  // (see buildLabDebugComment). It rides along inside the generated file so
+  // the clinic can just send us the HTML — no need to keep DevTools open
+  // while inserting the health card. Zero visual impact.
+  const debugComment = buildLabDebugComment(items);
 
   const labItems = items.filter(l => {
     const v = l.assay_value;
@@ -352,7 +349,7 @@ function buildLabPivotPanel(items, patientMeta = {}) {
     return isWithinDays(date, LAB_TRACKING_DAYS);
   });
 
-  if (labItems.length === 0) return '<p class="empty">無檢驗資料</p>';
+  if (labItems.length === 0) return `<p class="empty">無檢驗資料</p>${debugComment}`;
 
   const dateSet = new Set();
   const itemMap = {};
@@ -421,7 +418,7 @@ function buildLabPivotPanel(items, patientMeta = {}) {
     return fa - fb;
   });
 
-  if (dates.length === 0 || rowNames.length === 0) return '<p class="empty">無檢驗資料</p>';
+  if (dates.length === 0 || rowNames.length === 0) return `<p class="empty">無檢驗資料</p>${debugComment}`;
 
   let thead = '<tr><th class="lab-item-col">項目</th>';
   for (const d of dates) thead += `<th class="lab-date-col" data-short="${esc(shortDate(d))}" onclick="copyLabColumn(this)" title="點擊複製此次抽血數據">${esc(fullDate(d))}</th>`;
@@ -456,7 +453,36 @@ function buildLabPivotPanel(items, patientMeta = {}) {
   }
 
   return `<div class="lab-scroll"><table class="lab-pivot"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
-  <div class="tracking-note">${LAB_TRACKING_DAYS} 天內 · ${rowNames.length} 項 × ${dates.length} 次</div>`;
+  <div class="tracking-note">${LAB_TRACKING_DAYS} 天內 · ${rowNames.length} 項 × ${dates.length} 次</div>${debugComment}`;
+}
+
+// Build a hidden HTML comment carrying the raw lab fields so the clinic can
+// send us the generated file instead of reading the DevTools console. We dump
+// the union of every field key (to spot a possible specimen/sample-type field
+// NHI might supply) plus full records related to creatinine / eGFR / urine —
+// the data we need to keep the Cr → eGFR pipeline honest. Nothing renders.
+function buildLabDebugComment(items) {
+  if (!items || items.length === 0) return '';
+  try {
+    const keySet = new Set();
+    for (const l of items) for (const k of Object.keys(l)) keySet.add(k);
+    const relevant = items.filter(l => {
+      const n = `${l.assay_item_name || ''} ${l.order_name || ''} ${l.assay_tp_cname || ''}`;
+      return /creatinine|\bcr\b|e?gfr|urine|尿|肌酐|肌酸酐|腎絲球/i.test(n) || l.order_code === '09015C';
+    });
+    const payload = {
+      generated: new Date().toISOString(),
+      recordCount: items.length,
+      allFieldKeys: [...keySet].sort(),
+      sampleRecord: items[0],
+      creatinineRelatedRecords: relevant,
+    };
+    // HTML comments may not contain "--"; neutralise so data can't break out.
+    const json = JSON.stringify(payload, null, 2).replace(/--+/g, m => m.split('').join('​'));
+    return `\n<!-- NHITW-DEBUG-START\n${json}\nNHITW-DEBUG-END -->\n`;
+  } catch (e) {
+    return `\n<!-- NHITW-DEBUG error: ${String(e && e.message || e).replace(/--+/g, '-')} -->\n`;
+  }
 }
 
 // --- CKD-EPI 2021 (race-free) — ported from the user's ckd-calculator ---
