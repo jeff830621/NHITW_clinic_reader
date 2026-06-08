@@ -223,12 +223,30 @@ const LAB_ALIAS_LOOKUP = (() => {
   }
   return m;
 })();
+
+// Urine-sample tag. Whole-word "urine"/"urinary" + Chinese "尿液" + "(尿)"
+// catches the common ways labs label urine analytes WITHOUT false-positiving
+// on benign Chinese names like 尿酸 (uric acid, blood) or 尿素氮 (BUN, blood).
+const URINE_HINT = /\burine\b|\burinary\b|尿液|\(\s*尿\s*\)|（\s*尿\s*）/i;
+
 function canonicalLabName(l) {
-  const norm = normalizeLabName(l.assay_item_name || l.order_name || '');
+  const rawName = l.assay_item_name || l.order_name || '';
+  const orderCode = (l.order_code || '').trim();
+
+  // Positive hint: NHI 09015C is the serum Cr code — always Cr regardless of
+  // what assay_item_name says (some labs write "Cr+eGFR" etc.).
+  if (orderCode === '09015C') return 'Cr';
+
+  // Negative hint: urine-tagged items keep their raw name. Without this,
+  // "Creatinine (Urine)" gets parens-stripped → "creatinine" → "Cr" alias,
+  // then eGFR row sees urine Cr values (50-300 mg/dL) and reports stage 5.
+  if (URINE_HINT.test(rawName)) return (rawName || orderCode || '?').trim();
+
+  const norm = normalizeLabName(rawName);
   if (LAB_ALIAS_LOOKUP.has(norm)) return LAB_ALIAS_LOOKUP.get(norm);
   const noParen = norm.replace(/\(.*?\)/g, '').trim();
   if (noParen && LAB_ALIAS_LOOKUP.has(noParen)) return LAB_ALIAS_LOOKUP.get(noParen);
-  return (l.assay_item_name || l.order_name || l.order_code || '?').trim();
+  return (rawName || orderCode || '?').trim();
 }
 
 // Fallback units when the NHI lab response omits unit_data for a known test.
@@ -320,6 +338,15 @@ function buildLabPivotPanel(items, patientMeta = {}) {
     for (const [date, crCell] of Object.entries(itemMap['Cr'].dates)) {
       const scr = parseFloat(crCell.value);
       if (!isNaN(scr) && scr > 0) {
+        // Plausibility guard: serum Cr realistically ≤ ~15 mg/dL even in
+        // dialysis-dependent ESRD. Anything higher is almost certainly a
+        // urine specimen that slipped through the name-level filter
+        // (urine Cr is typically 50-300 mg/dL). Skip so we don't synthesize
+        // a bogus stage-5 eGFR.
+        if (scr > 15) {
+          console.warn(`[NHITW Clinic] Skipping eGFR for ${date} — Cr=${scr} not plausible as serum`);
+          continue;
+        }
         const egfr = computeEgfr(scr, age, isFemale);
         if (egfr != null) {
           const stage = ckdStage(egfr);
@@ -816,6 +843,10 @@ function buildCkdBadge(data, patientMeta = {}) {
   if (!cr) return '';
   const scr = parseFloat(cr.value);
   if (!(scr > 0)) return '';
+  if (scr > 15) {
+    console.warn('[NHITW Clinic] CKD badge: ignoring Cr=' + scr + ' (not plausible as serum)');
+    return '';
+  }
   const age = patientMeta?.age;
   if (typeof age !== 'number' || age <= 0 || !patientMeta?.sex) return '';
   const isFemale = isFemaleSex(patientMeta.sex);
