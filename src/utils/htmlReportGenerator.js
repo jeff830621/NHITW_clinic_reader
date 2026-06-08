@@ -229,23 +229,58 @@ const LAB_ALIAS_LOOKUP = (() => {
 // on benign Chinese names like 尿酸 (uric acid, blood) or 尿素氮 (BUN, blood).
 const URINE_HINT = /\burine\b|\burinary\b|尿液|\(\s*尿\s*\)|（\s*尿\s*）/i;
 
+// Pull the upper bound out of an NHI consult_value string. Handles:
+//   "[0.6][1.3]"  (NHI canonical bracketed format)
+//   "0.6-1.3" / "0.6~1.3" / "0.6–1.3"
+//   "<200" / "≦7.7" / "＜130"
+// Returns null if no numeric upper bound can be parsed.
+function parseRefMax(consult) {
+  if (!consult) return null;
+  const s = String(consult);
+  const bracketed = s.match(/\[\s*(-?\d+\.?\d*)\s*\]\s*\[\s*(-?\d+\.?\d*)\s*\]/);
+  if (bracketed) { const v = parseFloat(bracketed[2]); return isNaN(v) ? null : v; }
+  const range = s.match(/(-?\d+\.?\d*)\s*[-~–]\s*(-?\d+\.?\d*)/);
+  if (range) { const v = parseFloat(range[2]); return isNaN(v) ? null : v; }
+  const lt = s.match(/[<≦＜]\s*(-?\d+\.?\d*)/);
+  if (lt) { const v = parseFloat(lt[1]); return isNaN(v) ? null : v; }
+  return null;
+}
+
 function canonicalLabName(l) {
   const rawName = l.assay_item_name || l.order_name || '';
   const orderCode = (l.order_code || '').trim();
 
-  // Positive hint: NHI 09015C is the serum Cr code — always Cr regardless of
-  // what assay_item_name says (some labs write "Cr+eGFR" etc.).
-  if (orderCode === '09015C') return 'Cr';
-
   // Negative hint: urine-tagged items keep their raw name. Without this,
-  // "Creatinine (Urine)" gets parens-stripped → "creatinine" → "Cr" alias,
-  // then eGFR row sees urine Cr values (50-300 mg/dL) and reports stage 5.
+  // "Creatinine (Urine)" / "Cr(Urine)" get parens-stripped → "creatinine"
+  // → "Cr" alias, then eGFR row sees urine Cr values (50-300 mg/dL) and
+  // reports stage 5.
   if (URINE_HINT.test(rawName)) return (rawName || orderCode || '?').trim();
 
   const norm = normalizeLabName(rawName);
-  if (LAB_ALIAS_LOOKUP.has(norm)) return LAB_ALIAS_LOOKUP.get(norm);
-  const noParen = norm.replace(/\(.*?\)/g, '').trim();
-  if (noParen && LAB_ALIAS_LOOKUP.has(noParen)) return LAB_ALIAS_LOOKUP.get(noParen);
+  let canon = LAB_ALIAS_LOOKUP.get(norm);
+  if (!canon) {
+    const noParen = norm.replace(/\(.*?\)/g, '').trim();
+    if (noParen) canon = LAB_ALIAS_LOOKUP.get(noParen);
+  }
+
+  // Safety net for labs that generically name urine/dialysate Cr just "Cr" or
+  // "Creatinine" with no urine tag. Two giveaways:
+  //   - assay_value > 15 mg/dL (serum never reaches this even in ESRD)
+  //   - consult_value upper bound > 5 mg/dL (serum range is always <2)
+  // Isolate these into a distinct row name so itemMap['Cr'] only contains
+  // genuine serum Cr, and the eGFR row builder stays clean.
+  if (canon === 'Cr') {
+    const val = parseFloat(l.assay_value);
+    const refMax = parseRefMax(l.consult_value);
+    const bogusValue = !isNaN(val) && val > 15;
+    const bogusRef = refMax != null && refMax > 5;
+    if (bogusValue || bogusRef) {
+      console.warn(`[NHITW Clinic] '${rawName}' (${orderCode}) val=${l.assay_value} ref=${l.consult_value} — not serum Cr, isolating`);
+      return `${rawName} [${orderCode}|ref ${l.consult_value || '?'}]`;
+    }
+  }
+
+  if (canon) return canon;
   return (rawName || orderCode || '?').trim();
 }
 
