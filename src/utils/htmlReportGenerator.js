@@ -336,6 +336,15 @@ function buildLabPivotPanel(items, patientMeta = {}) {
   if (!items || items.length === 0) return '<p class="empty">無檢驗資料</p>';
   const LAB_TRACKING_DAYS = 180;
 
+  // One-time dump of the first record's keys so we can confirm whether NHI
+  // ever supplies a dedicated specimen/sample-type field that would be more
+  // reliable than parsing 'Urine' out of assay_item_name strings. Look in
+  // the browser DevTools console for the [NHITW Clinic][debug] line.
+  if (items[0] && typeof console !== 'undefined') {
+    console.log('[NHITW Clinic][debug] lab record fields:', Object.keys(items[0]).sort());
+    console.log('[NHITW Clinic][debug] sample record:', items[0]);
+  }
+
   const labItems = items.filter(l => {
     const v = l.assay_value;
     if (!v || String(v).trim() === '' || String(v).trim() === '***') return false;
