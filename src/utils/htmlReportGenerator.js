@@ -193,7 +193,7 @@ const LAB_ALIAS = [
   ['Monocyte', ['monocyte', 'mono', '單核球']],
   ['Eosinophil', ['eosinophil', 'eo', '嗜伊紅性白血球', '嗜酸性球', '嗜伊紅白血球']],
   ['Basophil', ['basophil', 'baso', '嗜鹼性白血球']],
-  ['Glucose', ['glucose', 'sugar', 'ac sugar', 'blood sugar', '葡萄糖', '血糖', '飯前血糖', '空腹血糖', '飯前血糖(ac)']],
+  ['Glucose', ['glucose', 'sugar', 'ac sugar', 'blood sugar', '葡萄糖', '血糖', '飯前血糖', '空腹血糖', '飯前血糖(ac)', 'glucose ac', 'glucose (ac)', 'glucose(ac)', 'glu.(ac)', 'glu (ac)', 'glu(ac)', 'glu ac', 'ac glucose']],
   ['Amylase', ['amylase', 'amylase(b)', '血液澱粉脢', '澱粉酶', '澱粉脢']],
   ['Lipase', ['lipase', '解脂脢', '脂肪酶', '脂解酶']],
   ['ALK-P', ['alk-p', 'alkp', 'alp', '鹼性磷酸脢', '鹼性磷酸酶', '鹼性磷酸酵素']],
@@ -230,6 +230,23 @@ const LAB_ALIAS_LOOKUP = (() => {
 // "[、，]尿" pattern catches 肌酐、尿 / 肌酸酐，尿 etc. where 尿 is appended
 // as a specimen marker after the analyte name.
 const URINE_HINT = /\burine\b|\burinary\b|尿液|\(\s*尿\s*\)|（\s*尿\s*）|[、，]\s*尿/i;
+
+// NHI urinalysis panel order code (尿液常規). Anything glucose-named here is
+// urine glucose, never blood.
+const URINALYSIS_ORDER_CODES = new Set(['06012C']);
+
+// Urine dipstick semi-quantitative marker: "(3+)", "(+)", "(+/-)", "(-)".
+// Blood chemistry values never carry these — they're a reliable "this is a
+// urine dipstick result" signal even when the value also has a number
+// (e.g. "500 (3+)").
+const DIPSTICK_MARKER = /\(\s*\d*\s*[+\-](?:\s*\/\s*[+\-])?\s*\)/;
+// A value that is a urine dipstick reading: a +/- marker, or no digit at all
+// ("Negative" / "Trace" / "－").
+function isUrineDipstickValue(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (s === '') return false;
+  return DIPSTICK_MARKER.test(s) || !/\d/.test(s);
+}
 
 // Pull the upper bound out of an NHI consult_value string. Handles:
 //   "[0.6][1.3]"  (NHI canonical bracketed format)
@@ -279,6 +296,18 @@ function canonicalLabName(l) {
     if (bogusValue || bogusRef) {
       console.warn(`[NHITW Clinic] '${rawName}' (${orderCode}) val=${l.assay_value} ref=${l.consult_value} — not serum Cr, isolating`);
       return `${rawName} [${orderCode}|ref ${l.consult_value || '?'}]`;
+    }
+  }
+
+  // Urine glucose masquerading as blood Glucose (same family of bug as Cr).
+  // Blood glucose is always a plain number; urine dipstick glucose carries a
+  // semi-quant marker ("500 (3+)", "(+/-)"), is purely qualitative
+  // ("Negative"), or comes from the urinalysis panel (06012C). Route it to a
+  // dedicated 尿糖 row so it neither merges with nor displaces blood glucose.
+  if (canon === 'Glucose') {
+    if (URINALYSIS_ORDER_CODES.has(orderCode) || isUrineDipstickValue(l.assay_value)) {
+      console.warn(`[NHITW Clinic] '${rawName}' (${orderCode}) val='${l.assay_value}' — urine glucose, isolating to 尿糖`);
+      return '尿糖';
     }
   }
 

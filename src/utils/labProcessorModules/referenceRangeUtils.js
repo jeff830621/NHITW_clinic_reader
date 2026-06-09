@@ -149,10 +149,12 @@ const referenceRangeStrategies = new Map([
       if (secondBracket && secondBracket !== '') {
         // Handle cases like "<40" or "＜40"
         if (secondBracket.includes('＜') || secondBracket.includes('<')) {
-          // 提取數字部分，去除所有非數字字符
-          const numericPart = secondBracket.replace(/[^0-9.]/g, '');
-          if (numericPart) {
-            max = cleanNumericValue(numericPart);
+          // 只取「第一個」數字，不可用 replace(/[^0-9.]/g,'') 把整串非數字
+          // 字元刪光 —— 那會把 "<130 100" 這種「同一括號內以空白分隔的兩個
+          // 數字」黏成 "130100"，造成參考值顯示成 <130100、且高值不再標紅。
+          const numMatch = secondBracket.match(/\d*\.?\d+/);
+          if (numMatch && numMatch[0]) {
+            max = cleanNumericValue(numMatch[0]);
           }
         } else {
           // Regular numeric value
@@ -167,9 +169,9 @@ const referenceRangeStrategies = new Map([
       let min = null;
       // 如果第一個括號有小於符號，這實際上是上限值，不是下限值
       if (firstBracket && (firstBracket.includes('＜') || firstBracket.includes('<'))) {
-        const numericPart = firstBracket.replace(/[^0-9.]/g, '');
-        if (numericPart) {
-          max = cleanNumericValue(numericPart);
+        const numMatch = firstBracket.match(/\d*\.?\d+/);
+        if (numMatch && numMatch[0]) {
+          max = cleanNumericValue(numMatch[0]);
           min = null; // 確保min為null，因為這是上限值
         }
       }
@@ -478,10 +480,11 @@ const getReferenceRangeDisplayText = (referenceStr, orderCode = null, hosp = nul
     if (upperValue) {
       // 直接檢查是否包含中文或英文「小於」符號
       if (upperValue.includes('＜') || upperValue.includes('<')) {
-        // 擷取數字部分，去除所有非數字字符
-        const numericPart = upperValue.replace(/[^0-9.]/g, '');
-        if (numericPart) {
-          return `<${numericPart}`;
+        // 只取第一個數字（見 parseReferenceRange 的同類修正），避免
+        // "<130 100" 被黏成 "130100"。
+        const numMatch = upperValue.match(/\d*\.?\d+/);
+        if (numMatch && numMatch[0]) {
+          return `<${numMatch[0]}`;
         }
       }
 
