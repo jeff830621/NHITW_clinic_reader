@@ -134,9 +134,11 @@ function buildDiagnosisPanel(data, highlightSets = {}) {
       const visitType = hospParts[1]?.trim() || '門診';
       const pd = parseDate(date);
 
-      if (!diagMap[code]) diagMap[code] = { code, name, count: 0, lastDate: '', lastHosp: '', lastType: '' };
+      if (!diagMap[code]) diagMap[code] = { code, name, visits: new Set(), lastDate: '', lastHosp: '', lastType: '' };
       const e = diagMap[code];
-      e.count++;
+      // Count distinct visits, not raw records — medication data is one row
+      // per drug line, so a single visit with 9 drugs must still count as 1.
+      e.visits.add(`${pd}|${hosp}`);
       if (!e.name && name) e.name = name;
       if (pd > e.lastDate) { e.lastDate = pd; e.lastHosp = hosp; e.lastType = visitType; }
     }
@@ -148,6 +150,8 @@ function buildDiagnosisPanel(data, highlightSets = {}) {
     processItems(allMeds, 'drug_date', 'hosp', 'icd_code', 'icd_cname');
   }
   processItems(data.chinesemedData?.rObject, 'func_date', 'hosp', 'icd_code', 'icd_cname');
+
+  for (const e of Object.values(diagMap)) e.count = e.visits.size;
 
   // Sort by most-recent date desc; tiebreak by frequency
   const list = Object.values(diagMap).sort((a, b) => {
