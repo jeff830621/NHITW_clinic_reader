@@ -19,7 +19,7 @@ window.lastInterceptedAdultHealthCheckData = null; // 新增成人預防保健�
 window.lastInterceptedCancerScreeningData = null; // 新增四癌篩檢結果資料
 window.lastInterceptedHbcvdata = null; // 新增B、C肝炎專區資料
 // window.lastInterceptedRehabilitationData = null; // 新增復健資料
-// window.lastInterceptedAcupunctureData = null; // 新增針灸資料
+window.lastInterceptedAcupunctureData = null; // 針灸治療資料 (imue0100)
 // window.lastInterceptedSpecialChineseMedCareData = null; // 新增特殊中醫處置資料
 
 // 新增: 使用者資訊快取
@@ -382,8 +382,8 @@ function performClearPreviousData() {
       lastInterceptedAdultHealthCheckData = null;
       lastInterceptedCancerScreeningData = null;
       lastInterceptedHbcvdata = null;
+      window.lastInterceptedAcupunctureData = null;
       // lastInterceptedRehabilitationData = null;
-      // lastInterceptedAcupunctureData = null;
       // lastInterceptedSpecialChineseMedCareData = null;
     }
   );
@@ -556,8 +556,8 @@ const DataProcessor = {
     ["adultHealthCheck", "/imu/api/imue0140/imue0140s01/hpa-data"],
     ["cancerScreening", "/imu/api/imue0150/imue0150s01/hpa-data"],
     ["hbcvdata", "/imu/api/imue0180/imue0180s01/hbcv-data"],
+    ["acupuncture", "/imu/api/imue0100/imue0100s02/get-data"],
     // ["rehabilitation", "/imu/api/imue0080/imue0080s02/get-data"],
-    // ["acupuncture", "/imu/api/imue0100/imue0100s02/get-data"],
     // ["specialChineseMedCare", "/imu/api/imue0170/imue0170s02/get-data"]
   ]),
 
@@ -577,8 +577,8 @@ const DataProcessor = {
     ["adultHealthCheck", "lastInterceptedAdultHealthCheckData"],
     ["cancerScreening", "lastInterceptedCancerScreeningData"],
     ["hbcvdata", "lastInterceptedHbcvdata"],
+    ["acupuncture", "lastInterceptedAcupunctureData"],
     // ["rehabilitation", "lastInterceptedRehabilitationData"],
-    // ["acupuncture", "lastInterceptedAcupunctureData"],
     // ["specialChineseMedCare", "lastInterceptedSpecialChineseMedCareData"]
   ]),
 
@@ -598,8 +598,8 @@ const DataProcessor = {
     ["adultHealthCheck", "saveAdultHealthCheckData"],
     ["cancerScreening", "saveCancerScreeningData"],
     ["hbcvdata", "saveHbcvdata"],
+    ["acupuncture", "saveAcupunctureData"],
     // ["rehabilitation", "saveRehabilitationData"],
-    // ["acupuncture", "saveAcupunctureData"],
     // ["specialChineseMedCare", "saveSpecialChineseMedCareData"]
   ]),
 
@@ -619,8 +619,8 @@ const DataProcessor = {
     ["adultHealthCheck", "成人預防保健"],
     ["cancerScreening", "四癌篩檢結果"],
     ["hbcvdata", "B、C肝炎專區"],
+    ["acupuncture", "針灸治療"],
     // ["rehabilitation", "復健治療"],
-    // ["acupuncture", "針灸治療"],
     // ["specialChineseMedCare", "特殊中醫處置"]
   ]),
 
@@ -1412,8 +1412,8 @@ function fetchAllDataTypes() {
         "discharge",
         "medDays",
         "patientsummary",
+        "acupuncture",
         // "rehabilitation",
-        // "acupuncture",
         // "specialChineseMedCare",
       ];
 
@@ -1833,7 +1833,7 @@ const nodeToDataTypeMap = [
   ["2.1", "medication"],
   ["2.4", "medDays"],
   ["3.1", "chinesemed"],
-  // ["3.2", "acupuncture"],
+  ["3.2", "acupuncture"],
   // ["3.3", "specialChineseMedCare"],
   ["5.1", "allergy"],
   ["6.1", "labdata"],
@@ -2142,8 +2142,8 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
         adultHealthCheck: window.lastInterceptedAdultHealthCheckData,
         cancerScreening: window.lastInterceptedCancerScreeningData,
         hbcvdata: window.lastInterceptedHbcvdata,
+        acupuncture: window.lastInterceptedAcupunctureData,
         // rehabilitation: window.lastInterceptedRehabilitationData,
-        // acupuncture: window.lastInterceptedAcupunctureData,
         // specialChineseMedCare: window.lastInterceptedSpecialChineseMedCareData,
       };
 

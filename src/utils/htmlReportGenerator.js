@@ -29,6 +29,11 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
   const adultHealthHtml = buildAdultHealthCheckPanel(data.adultHealthCheckData);
   const cancerScreeningHtml = buildCancerScreeningPanel(data.cancerScreeningData);
   const hbcvHtml = buildHbcvPanel(data.hbcvData);
+  // Acupuncture (imue0100) is freshly enabled. We don't render a visible
+  // panel yet because we don't know the response shape — embed a hidden
+  // HTML-comment probe instead so the doctor can send us a generated
+  // file and we'll know how to wire ICDs into the diagnosis panel.
+  const acupunctureProbeHtml = buildAcupunctureProbeComment(data.acupunctureData);
   const acuBadgeHtml = buildAcupunctureBadge(data);
   const cancerBadgeHtml = buildCancerCareBadge(data);
   const asthmaBadgeHtml = buildAsthmaBadge(data, patientMeta);
@@ -38,7 +43,7 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
   return buildFullHtml(patientName, patientId, dateStr, {
     diagnosisHtml, labPivotHtml, westMedHtml, otherWestMedHtml, chineseMedHtml,
     imagingHtml, allergyHtml, surgeryHtml, dischargeHtml,
-    adultHealthHtml, cancerScreeningHtml, hbcvHtml,
+    adultHealthHtml, cancerScreeningHtml, hbcvHtml, acupunctureProbeHtml,
     acuBadgeHtml, cancerBadgeHtml, asthmaBadgeHtml, ckdBadgeHtml,
     patientMetaLine
   });
@@ -561,6 +566,38 @@ function buildLabDebugComment(items) {
     return `\n<!-- NHITW-DEBUG-START\n${json}\nNHITW-DEBUG-END -->\n`;
   } catch (e) {
     return `\n<!-- NHITW-DEBUG error: ${String(e && e.message || e).replace(/--+/g, '-')} -->\n`;
+  }
+}
+
+// Probe for the freshly-enabled imue0100 (中醫處置 / 針灸治療) endpoint.
+// We don't know the response shape yet — dump the whole thing into a hidden
+// comment so the doctor can send the file and we'll know what fields to map
+// into the diagnosis panel. Zero visual impact; same -- neutralisation as
+// the lab debug above.
+function buildAcupunctureProbeComment(rawData) {
+  if (!rawData) return '';
+  try {
+    const items = rawData.rObject || rawData.robject || rawData;
+    const sampleCount = Array.isArray(items) ? items.length : 0;
+    const keySet = new Set();
+    if (Array.isArray(items)) {
+      for (const r of items.slice(0, 200)) {
+        if (r && typeof r === 'object') for (const k of Object.keys(r)) keySet.add(k);
+      }
+    }
+    const payload = {
+      generated: new Date().toISOString(),
+      endpoint: 'imue0100s02 (中醫處置 / 針灸治療)',
+      shape: Array.isArray(items) ? 'array' : typeof items,
+      recordCount: sampleCount,
+      allFieldKeys: [...keySet].sort(),
+      firstFiveRecords: Array.isArray(items) ? items.slice(0, 5) : null,
+      rawIfNonArray: !Array.isArray(items) ? rawData : undefined,
+    };
+    const json = JSON.stringify(payload, null, 2).replace(/--+/g, m => m.split('').join('​'));
+    return `\n<!-- NHITW-ACU-PROBE-START\n${json}\nNHITW-ACU-PROBE-END -->\n`;
+  } catch (e) {
+    return `\n<!-- NHITW-ACU-PROBE error: ${String(e && e.message || e).replace(/--+/g, '-')} -->\n`;
   }
 }
 
@@ -1222,12 +1259,34 @@ function buildChineseMedPanel(items) {
     html += `<div class="med-group-header">${esc(shortDate(g.date))} ${esc(g.hosp)}`;
     if (g.icd) html += ` <span class="diag-code">${esc(g.icd)}</span>`;
     html += '</div>';
+    // Dedupe within a visit: NHI sometimes returns the same prescription
+    // twice (correction + original 申報, batch-packet splits, etc.) which
+    // previously showed up as 「薏苡仁湯 42 TID 7天 / 薏苡仁湯 35 TID 7天」
+    // on the same date. Treat (drug name, freq, days) as identity — if a
+    // dup exists, keep the row with the larger qty and stash the other in
+    // a tooltip so nothing's silently lost.
+    const byKey = new Map();
     for (const m of g.meds) {
       const name = m.drug_perscrn_name || m.cdrug_name || '';
-      const qty = m.order_qty || '';
+      const qty = parseFloat(m.order_qty) || 0;
       const freq = m.drug_fre || '';
       const days = m.day || '';
-      html += `<div class="med-item">${esc(name)} <span class="med-detail">${esc(qty)} ${esc(freq)} ${days ? days+'天' : ''}</span></div>`;
+      const k = `${name}|${freq}|${days}`;
+      const prev = byKey.get(k);
+      if (!prev) {
+        byKey.set(k, { name, qty, freq, days, raw: m.order_qty || '', alts: [] });
+      } else if (qty > prev.qty) {
+        prev.alts.push(prev.raw);
+        prev.qty = qty;
+        prev.raw = m.order_qty || '';
+      } else if (String(m.order_qty || '') !== prev.raw) {
+        prev.alts.push(m.order_qty || '');
+      }
+    }
+    for (const r of byKey.values()) {
+      const altTip = r.alts.length ? ` title="同筆處方另存 qty=${esc(r.alts.join(', '))}"` : '';
+      const altMark = r.alts.length ? ` <span class="med-dup">⚠</span>` : '';
+      html += `<div class="med-item"${altTip}>${esc(r.name)} <span class="med-detail">${esc(r.raw)} ${esc(r.freq)} ${r.days ? r.days+'天' : ''}${altMark}</span></div>`;
     }
   }
   return html;
@@ -1538,6 +1597,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .med-group-header:first-child { margin-top:0; }
 .med-item { padding:3px 0 3px 10px; font-size:12px; border-bottom:1px solid #fafafa; }
 .med-detail { color:#888; font-size:11px; }
+.med-dup { color:#ed6c02; font-size:10px; cursor:help; }
 
 /* Imaging */
 .imaging-item { padding:6px 0; border-bottom:1px solid #f5f5f5; }
@@ -1710,6 +1770,7 @@ function copyLabColumn(th) {
   }
 }
 </script>
+${panels.acupunctureProbeHtml || ''}
 </body>
 </html>`;
 }

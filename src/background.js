@@ -9,6 +9,9 @@ let currentSessionData = {
   medicationData: null,
   labData: null,
   chinesemedData: null,
+  acupunctureData: null, // imue0100 — pure-acupuncture / 處置 records (no
+                         // drug rows in chinesemedData), enabling this so
+                         // 純針灸 diagnoses become visible in the report.
   imagingData: null,
   allergyData: null,     // New
   surgeryData: null,     // New
@@ -232,6 +235,12 @@ const API_ENDPOINTS = {
   medDays: "medcloud2.nhi.gov.tw/imu/api/imue0120/imue0120s01/pres-med-day",
   patientSummary: "medcloud2.nhi.gov.tw/imu/api/imue2000/imue2000s01/get-summary",  // New endpoint
   chinesemed: "medcloud2.nhi.gov.tw/imu/api/imue0090/imue0090s02/get-data",
+  // imue0100 = 中醫處置 / 針灸治療. Captures visits where the doctor only
+  // did acupuncture and prescribed no Chinese herbs — those rows are
+  // missing from imue0090 (中醫用藥) entirely. Endpoint exact path inferred
+  // from original upstream commented-out scaffolding; if NHI returns 404
+  // the listener just stays silent (no side effects).
+  acupuncture: "medcloud2.nhi.gov.tw/imu/api/imue0100/imue0100s02/get-data",
   imaging: "medcloud2.nhi.gov.tw/imu/api/imue0130/imue0130s02/get-data",
   medication: "medcloud2.nhi.gov.tw/imu/api/imue0008/imue0008s02/get-data",
   labdata: "medcloud2.nhi.gov.tw/imu/api/imue0060/imue0060s02/get-data"
@@ -277,6 +286,7 @@ const DATA_TYPE_TO_STORAGE_KEY = {
   'medication': 'medicationData',
   'labdata': 'labData',
   'chinesemed': 'chinesemedData',
+  'acupuncture': 'acupunctureData',
   'imaging': 'imagingData',
   'allergy': 'allergyData',
   'surgery': 'surgeryData',
@@ -373,6 +383,7 @@ const ACTION_HANDLERS = new Map([
   ['saveMedicationData', saveDataHandler('medication')],
   ['saveLabData', saveDataHandler('labdata')],
   ['saveChineseMedData', saveDataHandler('chinesemed')],
+  ['saveAcupunctureData', saveDataHandler('acupuncture')],
   ['saveImagingData', saveDataHandler('imaging')],
   ['saveAllergyData', saveDataHandler('allergy')],
   ['saveSurgeryData', saveDataHandler('surgery')],
