@@ -74,8 +74,15 @@ export function getReportFilename(patientName, date) {
   const da = String(d.getDate()).padStart(2, '0');
   const h = String(d.getHours()).padStart(2, '0');
   const mi = String(d.getMinutes()).padStart(2, '0');
-  const safeName = patientName.replace(/[\\/:*?"<>|]/g, '_');
-  return `${safeName}_${y}${mo}${da}_${h}${mi}.html`;
+  // Seconds: two same-name patients (王小明 etc.) queried within the same
+  // minute would otherwise overwrite each other's report.
+  const se = String(d.getSeconds()).padStart(2, '0');
+  // Strip path separators + chars Windows forbids; leading dots stripped too
+  // so a name like '...' can't masquerade as a relative path even after the
+  // native host's Join-Path. Compact whitespace to a single underscore.
+  const safeName = patientName.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').replace(/^\.+/, '');
+  const finalName = safeName || 'unknown';
+  return `${finalName}_${y}${mo}${da}_${h}${mi}${se}.html`;
 }
 
 // --- Helpers ---
@@ -208,14 +215,24 @@ const LAB_ALIAS = [
   ['Na', ['na', 'sodium', '鈉']],
   ['K', ['k', 'potassium', '鉀']],
   ['Cl', ['cl', 'chloride', '氯']],
-  ['GOT', ['got', 'ast', 'sgot', '天門冬胺酸轉胺酶', '天門冬胺酸胺基轉移酶']],
-  ['GPT', ['gpt', 'alt', 'sgpt', '丙胺酸轉胺酶', '丙胺酸胺基轉移酶']],
-  ['CRP', ['crp', 'c反應蛋白', 'c-反應蛋白', 'c 反應蛋白', 'c-reactive protein']],
+  ['GOT', ['got', 'ast', 'sgot', 's.g.o.t', 's.g.o.t (ast)', 's.g.o.t. (ast)', '天門冬胺酸轉胺酶', '天門冬胺酸胺基轉移酶']],
+  ['GPT', ['gpt', 'alt', 'sgpt', 's.g.p.t', 's.g.p.t (alt)', 's.g.p.t. (alt)', '丙胺酸轉胺酶', '丙胺酸胺基轉移酶']],
+  ['CRP', ['crp', 'c反應蛋白', 'c-反應蛋白', 'c 反應蛋白', 'c-reactive protein', 'crp, c-reactive protein', 'crp，c-reactive protein']],
+  // Lipid panel — hospitals report these under many variant names. Without
+  // these aliases the report shows duplicate rows ('Chol' vs 'Cholesterol'
+  // vs '膽固醇', 'LDL' vs 'LDL-cholesterol' vs 'LDL-cholesterol (低密度脂蛋白
+  // 膽固醇)', 'HDL' vs 'HDL-cholesterol' vs '高密度脂蛋白膽固醇'…).
+  ['Chol', ['chol', 'cholesterol', 'total cholesterol', 'cho', 't-cho', 't-chol', '膽固醇', '總膽固醇', 'cholesterol(膽固醇)']],
+  ['TG', ['tg', 'tg, triglycerides', 'triglyceride', 'triglycerides', 't.g.', '三酸甘油脂', '三酸甘油酯', 'tg (三酸甘油脂)']],
+  ['HDL', ['hdl', 'hdl-cholesterol', 'hdl cholesterol', 'hdl-c', 'hdl chol', 'hdl-cholesterol (高密度脂蛋白膽固醇)', '高密度脂蛋白膽固醇', '高密度脂蛋白', 'hdl(高密度脂蛋白)']],
+  ['LDL', ['ldl', 'ldl-cholesterol', 'ldl cholesterol', 'ldl-c', 'ldl chol', 'ldl-cholesterol (低密度脂蛋白膽固醇)', '低密度脂蛋白膽固醇', '低密度脂蛋白', 'ldl(低密度脂蛋白)']],
 ];
 function normalizeLabName(s) {
   return String(s || '')
     .toLowerCase()
     .replace(/ｃ/g, 'c')                       // fullwidth c (from Ｃ反應蛋白)
+    .replace(/[－–—]/g, '-')                   // fullwidth/EN/EM dashes → ascii hyphen
+                                               //   (HDL－cholesterol vs HDL-cholesterol)
     .replace(/（/g, '(').replace(/）/g, ')')   // fullwidth parens
     .replace(/\s+/g, ' ')
     .trim();
@@ -401,7 +418,31 @@ function buildLabPivotPanel(items, patientMeta = {}) {
     // Capture the first non-empty unit + reference display we encounter
     if (!itemMap[name].unit && unit) itemMap[name].unit = unit;
     if (!itemMap[name].code && code) itemMap[name].code = code;
-    itemMap[name].dates[date] = { value, dir: labDirection(value, ref, code), ref: refDisplay(ref, code) };
+    const newCell = { value, dir: labDirection(value, ref, code), ref: refDisplay(ref, code) };
+    const existing = itemMap[name].dates[date];
+    if (!existing) {
+      itemMap[name].dates[date] = newCell;
+    } else {
+      // Same-date collision (e.g. A 院 AM + B 院 PM same day). Don't silently
+      // overwrite — preserve both. Prefer the abnormal reading as the
+      // 'primary' shown in the cell + used for eGFR / row direction, and
+      // stash the other(s) as alternates rendered alongside.
+      const existV = String(existing.value || '').trim();
+      const newV = String(newCell.value || '').trim();
+      if (!existV) { itemMap[name].dates[date] = newCell; }
+      else if (!newV || existV === newV) { /* nothing new, skip */ }
+      else {
+        // Choose which is "primary" — abnormal beats normal.
+        const swap = !existing.dir && newCell.dir;
+        if (swap) {
+          newCell.alternates = [existV, ...(existing.alternates || []).filter(v => v !== newV)];
+          itemMap[name].dates[date] = newCell;
+        } else {
+          existing.alternates = existing.alternates || [];
+          if (!existing.alternates.includes(newV)) existing.alternates.push(newV);
+        }
+      }
+    }
   }
 
   // Synthesize an eGFR(計算) row from Cr + age + sex (CKD-EPI 2021 race-free).
@@ -475,8 +516,13 @@ function buildLabPivotPanel(items, patientMeta = {}) {
           tbody += `<td style="${style}" title="${esc(tip)}" data-val="${esc(cell.value)}">${esc(cell.value)}<span class="ckd-stage">${esc(cell.stage)}</span></td>`;
         } else {
           const cls = cell.dir === 'high' ? 'lab-high' : cell.dir === 'low' ? 'lab-low' : '';
-          const tip = cell.ref ? `參考值 ${cell.ref}` : '';
-          tbody += `<td class="${cls}" title="${esc(tip)}" data-val="${esc(cell.value)}">${esc(cell.value)}</td>`;
+          const tipParts = [];
+          if (cell.ref) tipParts.push(`參考值 ${cell.ref}`);
+          if (cell.alternates?.length) tipParts.push(`同日另: ${cell.alternates.join(' / ')}`);
+          const altHtml = cell.alternates?.length
+            ? `<span class="lab-alt"> /${esc(cell.alternates.join(' /'))}</span>`
+            : '';
+          tbody += `<td class="${cls}" title="${esc(tipParts.join(' · '))}" data-val="${esc(cell.value)}">${esc(cell.value)}${altHtml}</td>`;
         }
       } else {
         tbody += '<td class="no-data">-</td>';
@@ -1468,6 +1514,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .lab-pivot td { padding:5px 8px; text-align:center; border-bottom:1px solid #f0f0f0; }
 .lab-pivot .lab-item-name { text-align:left; font-weight:600; white-space:nowrap; position:sticky; left:0; background:#fff; z-index:1; }
 .lab-pivot .lab-unit { color:#999; font-weight:400; font-size:10px; margin-left:4px; }
+.lab-pivot .lab-alt { color:#999; font-weight:400; font-size:11px; }
 .lab-pivot .ckd-stage { display:inline-block; margin-left:4px; padding:1px 5px; border-radius:8px; background:#f5f5f5; color:inherit; font-size:9px; font-weight:600; vertical-align:middle; }
 .lab-pivot .lab-item-col { text-align:left; position:sticky; left:0; background:#f5f7fa; z-index:2; }
 .lab-pivot .no-data { color:#ccc; }

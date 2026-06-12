@@ -27,6 +27,17 @@ let cachedUserInfo = null;
 let lastUserInfoExtractTime = 0;
 const USER_INFO_CACHE_DURATION = 5000; // 5秒內不重複提取令牌
 
+// PHI masking for console logs — preserves enough characters to be useful
+// when debugging without exposing the full name / ID in browser logs.
+//   maskPii('許朝慶', 1, 1)        → '許*慶'
+//   maskPii('P122726079', 4, 3)   → 'P122***079'
+function maskPii(s, prefix = 1, suffix = 1) {
+  if (s == null) return '';
+  const str = String(s);
+  if (str.length <= prefix + suffix) return str;
+  return str.slice(0, prefix) + '*'.repeat(Math.min(3, str.length - prefix - suffix)) + str.slice(-suffix);
+}
+
 let isMonitoring = false;
 let lastSuccessfulRequestHeaders = null;
 let hasExtractedToken = false;
@@ -334,6 +345,18 @@ function performClearPreviousData() {
 
   lastDataClearTime = currentTime;
   console.log("Clearing previous data due to new session or card change");
+
+  // PHI hygiene: legacyContent writes the full patient payload to
+  // localStorage('NHITW_DATA') for the FloatingIcon UI to read. That key was
+  // never being cleared on logout / card change, so the previous patient's
+  // labs / meds stayed visible to anyone who opened DevTools on the medcloud
+  // tab. Drop it here along with any token fallbacks the JWT capture path
+  // may have stashed.
+  try {
+    localStorage.removeItem('NHITW_DATA');
+    localStorage.removeItem('jwt_token');
+    localStorage.removeItem('nhi_extractor_token');
+  } catch (_) { /* private mode / SecurityError — ignore */ }
 
   // 清除擴展儲存數據
   chrome.storage.local.remove(
@@ -1119,7 +1142,9 @@ function saveToken(token) {
     }
   }
 
-  console.log("[NHITW Clinic] Patient info - Name:", patientName, "ID:", patientIdFromToken);
+  // Mask PHI in logs (chars between first and last few): 「許朝慶」→「許*慶」,
+  // 「P122726079」→「P122***079」. Loggable enough to debug; not enough to leak.
+  console.log("[NHITW Clinic] Patient info - Name:", maskPii(patientName, 1, 1), "ID:", maskPii(patientIdFromToken, 4, 3));
 
   // 保存令牌到內存（不存到 localStorage）
   // 也發送給 background script 以供臨時使用

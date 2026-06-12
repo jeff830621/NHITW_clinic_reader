@@ -144,7 +144,7 @@ async function autoExportToSharedFolder() {
 
     // Fallback name
     if (!patientName) patientName = patientId;
-    console.log(`[NHITW Clinic] Export: ID=${patientId}, Name=${patientName}`);
+    console.log(`[NHITW Clinic] Export: ID=${maskPii(patientId, 4, 3)}, Name=${maskPii(patientName, 1, 1)}`);
 
     const exportData = {};
     for (const [key, value] of Object.entries(currentSessionData)) {
@@ -154,14 +154,36 @@ async function autoExportToSharedFolder() {
     }
 
     // Generate and write HTML report only (no JSON)
-    const html = generateHtmlReport(patientName, patientId, exportData, patientMeta);
+    let html = generateHtmlReport(patientName, patientId, exportData, patientMeta);
     const filename = getReportFilename(patientName);
     const session = getClinicSession(new Date());
-    const sizeKB = Math.round(new Blob([html]).size / 1024);
+    const originalKB = Math.round(new Blob([html]).size / 1024);
+    let sizeKB = originalKB;
     console.log(`[NHITW Clinic] Generating HTML: ${filename} (${sizeKB}KB, ${Object.keys(exportData).length} data types, session=${session})`);
 
+    // Native Messaging is hard-capped near 1 MB per message. The embedded
+    // <!--NHITW-DEBUG--> JSON is large (full lab records); strip it first as
+    // a cheap recovery before falling back to a placeholder.
     if (sizeKB > 900) {
-      console.warn(`[NHITW Clinic] HTML too large (${sizeKB}KB), exceeds Native Messaging limit`);
+      html = stripDebugComment(html);
+      sizeKB = Math.round(new Blob([html]).size / 1024);
+      if (sizeKB <= 900) {
+        console.warn(`[NHITW Clinic] HTML trimmed (${originalKB}KB → ${sizeKB}KB) by dropping debug comment`);
+      }
+    }
+
+    if (sizeKB > 900) {
+      // Still too big — write a small stub so the doctor SEES something
+      // missing in the shared folder, and badge the action red so they
+      // notice in the popup too. Without this they'd think the export
+      // succeeded silently.
+      console.warn(`[NHITW Clinic] HTML too large (${sizeKB}KB) — writing oversize stub instead`);
+      try {
+        chrome.action.setBadgeText({ text: '⚠' });
+        chrome.action.setBadgeBackgroundColor({ color: '#c62828' });
+      } catch (_) {}
+      html = buildOversizeStub(patientName, patientId, originalKB);
+      await writeHtml(filename, html, undefined, session);
       return;
     }
 
@@ -170,6 +192,36 @@ async function autoExportToSharedFolder() {
   } catch (err) {
     console.warn('[NHITW Clinic] Auto-export failed (non-blocking):', err.message);
   }
+}
+
+function stripDebugComment(html) {
+  return html.replace(/<!-- NHITW-DEBUG-START[\s\S]*?NHITW-DEBUG-END -->\n?/g, '');
+}
+
+function maskPii(s, prefix = 1, suffix = 1) {
+  if (s == null) return '';
+  const str = String(s);
+  if (str.length <= prefix + suffix) return str;
+  return str.slice(0, prefix) + '*'.repeat(Math.min(3, str.length - prefix - suffix)) + str.slice(-suffix);
+}
+
+function buildOversizeStub(name, id, kb) {
+  const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const now = new Date().toLocaleString('zh-TW');
+  return `<!DOCTYPE html><html lang="zh-TW"><head><meta charset="UTF-8"><title>${esc(name)} — 報告過大</title>
+<style>body{font-family:"Microsoft JhengHei","PingFang TC",sans-serif;background:#fff3e0;color:#333;padding:24px;margin:0}
+h1{color:#c62828;font-size:20px;margin-bottom:12px}
+.box{background:#fff;border:2px solid #ed6c02;border-radius:8px;padding:18px;max-width:600px;line-height:1.7;font-size:14px}
+.box b{color:#c62828}.box code{background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:13px}
+.note{margin-top:14px;font-size:12px;color:#666}</style></head><body>
+<h1>⚠️ 此份病人資料過大，未能完整生成報告</h1>
+<div class="box">
+  <p><b>病人：</b>${esc(name)}（${esc(id)}）</p>
+  <p><b>時間：</b>${esc(now)}</p>
+  <p><b>原始 HTML 大小：</b>${kb} KB（超過 Native Messaging 上限 1024 KB）</p>
+  <p>請<b>直接在健保雲端原始系統查閱</b>本次資料。</p>
+  <p class="note">若此病人經常發生，請聯絡開發者調整擴充功能 — 通常是檢驗紀錄太多年份。</p>
+</div></body></html>`;
 }
 
 // 定義 API 端點和對應的數據類型
@@ -345,7 +397,7 @@ const ACTION_HANDLERS = new Map([
       currentSessionData.patientIdFromToken = message.patientIdFromToken;
       currentSessionData.patientName = message.patientName || message.patientIdFromToken;
     }
-    console.log(`[NHITW Clinic] saveToken from tab ${sender?.tab?.id ?? '?'} - Name: ${message.patientName}, ID: ${message.patientIdFromToken}`);
+    console.log(`[NHITW Clinic] saveToken from tab ${sender?.tab?.id ?? '?'} - Name: ${maskPii(message.patientName, 1, 1)}, ID: ${maskPii(message.patientIdFromToken, 4, 3)}`);
     scheduleExport();
     sendResponse({ status: "token_saved" });
   }],
