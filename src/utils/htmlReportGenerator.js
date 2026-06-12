@@ -1429,15 +1429,16 @@ function buildHbcvPanel(raw) {
 // --- Full HTML ---
 function buildFullHtml(name, id, dateStr, panels) {
   // Build optional small sections for right column
+  // Right-column ordering: clinically actionable / day-to-day items first
+  // (allergy, surgery, prevention/screening), then 住院 history at the bottom.
+  // The doctor cares about "what is this patient on today" before "what was
+  // s/he hospitalized for in the past".
   let rightExtra = '';
   if (panels.allergyHtml && !panels.allergyHtml.includes('無過敏')) {
     rightExtra += `<div class="panel"><div class="panel-title" onclick="togglePanel(this)">⚠ 過敏紀錄</div><div class="panel-body">${panels.allergyHtml}</div></div>`;
   }
   if (panels.surgeryHtml) {
     rightExtra += `<div class="panel"><div class="panel-title" onclick="togglePanel(this)">🔪 手術紀錄</div><div class="panel-body">${panels.surgeryHtml}</div></div>`;
-  }
-  if (panels.dischargeHtml) {
-    rightExtra += `<div class="panel"><div class="panel-title" onclick="togglePanel(this)">🏥 出院摘要</div><div class="panel-body">${panels.dischargeHtml}</div></div>`;
   }
   if (panels.adultHealthHtml) {
     rightExtra += `<div class="panel"><div class="panel-title" onclick="togglePanel(this)">🩺 成人預防保健</div><div class="panel-body">${panels.adultHealthHtml}</div></div>`;
@@ -1447,6 +1448,9 @@ function buildFullHtml(name, id, dateStr, panels) {
   }
   if (panels.hbcvHtml) {
     rightExtra += `<div class="panel"><div class="panel-title" onclick="togglePanel(this)">🧫 B/C 肝專區</div><div class="panel-body">${panels.hbcvHtml}</div></div>`;
+  }
+  if (panels.dischargeHtml) {
+    rightExtra += `<div class="panel"><div class="panel-title" onclick="togglePanel(this)">🏥 住院紀錄</div><div class="panel-body">${panels.dischargeHtml}</div></div>`;
   }
 
   return `<!DOCTYPE html>
