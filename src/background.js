@@ -127,8 +127,20 @@ async function autoExportToSharedFolder() {
     // Atomic update: (name, id) move together. Only trust fresh if it has an
     // id — empty responses leave the cached saveToken value intact.
     if (fresh?.id) {
+      const switched = fresh.id !== currentSessionData.patientIdFromToken;
       currentSessionData.patientIdFromToken = fresh.id;
-      currentSessionData.patientName = fresh.name || fresh.id;
+      // Only overwrite the cached name when getPatientInfo actually returned
+      // one. Some hospitals' JWT omits UserName, so getPatientInfo's
+      // JWT-only decode comes back nameless even though saveToken's DOM
+      // fallback had already captured the real name. Downgrading a good name
+      // to the bare ID here is what regressed filenames back to ID numbers —
+      // so keep the existing name unless the patient genuinely changed or we
+      // never had a name to begin with.
+      if (fresh.name) {
+        currentSessionData.patientName = fresh.name;
+      } else if (switched || !currentSessionData.patientName) {
+        currentSessionData.patientName = fresh.id;
+      }
       patientMeta = { age: fresh.age ?? null, sex: fresh.sex || '', birthday: fresh.birthday || '' };
     }
 

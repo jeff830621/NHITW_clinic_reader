@@ -1959,7 +1959,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } catch (e) {
       console.warn('[NHITW Clinic] getPatientInfo decode failed:', e.message);
     }
-    console.log('[NHITW Clinic] getPatientInfo →', { name, id, age, sex });
+    // DOM fallback — getPatientInfo previously only decoded the JWT, so when
+    // a hospital's JWT omits UserName it returned a nameless response and the
+    // export downgraded the report filename to the ID number. Mirror
+    // extractUserInfoFromToken's DOM scrape so this path is just as robust.
+    if (!name || !id) {
+      try {
+        const bodyText = document.body.innerText || '';
+        if (!id) {
+          const idMatch = bodyText.match(/身分證[號字]?[：:]\s*([A-Z]\d{9})/);
+          if (idMatch) id = idMatch[1];
+        }
+        if (!name) {
+          const nameMatch = bodyText.match(/身分證[號字]?[：:]\s*[A-Z][\d*]{9}\s+([一-龥]+)/);
+          if (nameMatch) name = nameMatch[1].trim();
+        }
+      } catch (_) { /* ignore */ }
+    }
+    console.log('[NHITW Clinic] getPatientInfo →', { name: maskPii(name, 1, 1), id: maskPii(id, 4, 3), age, sex });
     sendResponse({ name, id, age, sex, birthday });
     return true;
   }
