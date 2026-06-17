@@ -111,6 +111,22 @@ function fullDate(r) {
   if (parts.length === 3) return `${parts[0]}/${parts[1]}/${parts[2]}`;
   return d;
 }
+// ROC short date YYY/MM/DD — used as the clipboard prefix when copying a
+// lab column, since ROC year (民國) is the standard charting convention.
+// Visible table headers keep showing the Western year for readability.
+function rocShortDate(r) {
+  const d = parseDate(r);
+  if (!d) return '';
+  const parts = d.split('-');
+  if (parts.length === 3) {
+    const adYear = parseInt(parts[0], 10);
+    if (!isNaN(adYear)) {
+      const rocYear = adYear - 1911;
+      return `${rocYear}/${parts[1]}/${parts[2]}`;
+    }
+  }
+  return d;
+}
 function parseHosp(r) { return r ? r.split(';')[0].trim() : ''; }
 
 // --- Diagnosis Panel — ALL diagnoses, sorted by most-recent diagnosed date ---
@@ -500,7 +516,7 @@ function buildLabPivotPanel(items, patientMeta = {}) {
   if (dates.length === 0 || rowNames.length === 0) return `<p class="empty">無檢驗資料</p>${debugComment}`;
 
   let thead = '<tr><th class="lab-item-col">項目</th>';
-  for (const d of dates) thead += `<th class="lab-date-col" data-short="${esc(shortDate(d))}" onclick="copyLabColumn(this)" title="點擊複製此次抽血數據">${esc(fullDate(d))}</th>`;
+  for (const d of dates) thead += `<th class="lab-date-col" data-short="${esc(rocShortDate(d))}" onclick="copyLabColumn(this)" title="點擊複製此次抽血數據(民國年格式)">${esc(fullDate(d))}</th>`;
   thead += '</tr>';
 
   let tbody = '';
@@ -510,7 +526,7 @@ function buildLabPivotPanel(items, patientMeta = {}) {
     const unitLabel = unit ? `<span class="lab-unit">${esc(unit)}</span>` : '';
     // Strip "(計算)" suffix etc. for the copy payload (clinically eGFR is enough).
     const copyName = name.replace(/\(計算\)/g, '').trim() || name;
-    tbody += `<tr data-item="${esc(copyName)}"><td class="lab-item-name" title="${esc(item.code)}">${esc(name)}${unitLabel}</td>`;
+    tbody += `<tr data-item="${esc(copyName)}"><td class="lab-item-name" title="點擊選取(高亮列)。點日期欄複製時，若有選取則只複製選的；${esc(item.code)}" onclick="toggleLabRow(this)">${esc(name)}${unitLabel}</td>`;
     for (const d of dates) {
       const cell = item.dates[d];
       if (cell) {
@@ -536,7 +552,7 @@ function buildLabPivotPanel(items, patientMeta = {}) {
     tbody += '</tr>';
   }
 
-  return `<div class="lab-scroll"><table class="lab-pivot"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
+  return `<div class="lab-toolbar"><span class="lab-tool-hint">點項目名稱可選取</span><a class="lab-tool-btn" onclick="selectAllLab(this)">全選</a><span class="lab-tool-sep">｜</span><a class="lab-tool-btn" onclick="clearLabSelection(this)">清空</a><span class="lab-sel-count">未選取</span></div><div class="lab-scroll"><table class="lab-pivot"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
   <div class="tracking-note">${LAB_TRACKING_DAYS} 天內 · ${rowNames.length} 項 × ${dates.length} 次</div>${debugComment}`;
 }
 
@@ -1575,7 +1591,20 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .lab-pivot th.lab-date-col:hover { background:#e3f2fd; color:#1565c0; }
 .lab-pivot th.lab-date-col.copied { background:#a5d6a7 !important; color:#1b5e20; }
 .lab-pivot td { padding:5px 8px; text-align:center; border-bottom:1px solid #f0f0f0; }
-.lab-pivot .lab-item-name { text-align:left; font-weight:600; white-space:nowrap; position:sticky; left:0; background:#fff; z-index:1; }
+.lab-pivot .lab-item-name { text-align:left; font-weight:600; white-space:nowrap; position:sticky; left:0; background:#fff; z-index:1; cursor:pointer; user-select:none; transition:background 0.15s; }
+.lab-pivot .lab-item-name:hover { background:#fff8e1; }
+/* Selected row: yellow accent + sticky item-name cell highlighted distinctly */
+.lab-pivot tr.lab-row-selected td { background:#fffde7; }
+.lab-pivot tr.lab-row-selected .lab-item-name { background:#fff9c4; border-left:3px solid #fbc02d; padding-left:5px; }
+.lab-pivot tr.lab-row-selected:hover .lab-item-name { background:#fff59d; }
+/* Toolbar above the pivot table */
+.lab-toolbar { padding:6px 12px; border-bottom:1px solid #f0f0f0; font-size:11px; display:flex; align-items:center; gap:8px; background:#fafafa; }
+.lab-tool-hint { color:#999; font-size:10px; }
+.lab-tool-btn { color:#1565c0; cursor:pointer; text-decoration:none; user-select:none; }
+.lab-tool-btn:hover { text-decoration:underline; }
+.lab-tool-sep { color:#ccc; }
+.lab-sel-count { margin-left:auto; color:#888; font-size:11px; }
+.lab-sel-count.lab-sel-active { color:#e65100; font-weight:600; }
 .lab-pivot .lab-unit { color:#999; font-weight:400; font-size:10px; margin-left:4px; }
 .lab-pivot .lab-alt { color:#999; font-weight:400; font-size:11px; }
 .lab-pivot .ckd-stage { display:inline-block; margin-left:4px; padding:1px 5px; border-radius:8px; background:#f5f5f5; color:inherit; font-size:9px; font-weight:600; vertical-align:middle; }
@@ -1730,13 +1759,50 @@ function collapseAll() {
   document.querySelectorAll('.panel-title').forEach(function(t) { t.classList.add('collapsed'); });
   document.querySelectorAll('.panel-body').forEach(function(b) { b.classList.add('collapsed'); });
 }
+function findLabPanel(el) {
+  // Walk up to the .panel-body that contains the lab toolbar + table.
+  var p = el && el.closest ? el.closest('.panel-body') : null;
+  return p && p.querySelector('.lab-pivot') ? p : null;
+}
+function updateLabSelCount(panel) {
+  if (!panel) return;
+  var n = panel.querySelectorAll('.lab-pivot tbody tr.lab-row-selected').length;
+  var counter = panel.querySelector('.lab-sel-count');
+  if (counter) {
+    counter.textContent = n > 0 ? ('已選 ' + n + ' 項') : '未選取';
+    counter.classList.toggle('lab-sel-active', n > 0);
+  }
+}
+function toggleLabRow(td) {
+  var tr = td.closest('tr');
+  if (!tr || !tr.dataset.item) return;
+  tr.classList.toggle('lab-row-selected');
+  updateLabSelCount(td.closest('.panel-body'));
+}
+function selectAllLab(btn) {
+  var panel = findLabPanel(btn);
+  if (!panel) return;
+  panel.querySelectorAll('.lab-pivot tbody tr[data-item]').forEach(function(tr) { tr.classList.add('lab-row-selected'); });
+  updateLabSelCount(panel);
+}
+function clearLabSelection(btn) {
+  var panel = findLabPanel(btn);
+  if (!panel) return;
+  panel.querySelectorAll('.lab-pivot tbody tr.lab-row-selected').forEach(function(tr) { tr.classList.remove('lab-row-selected'); });
+  updateLabSelCount(panel);
+}
 function copyLabColumn(th) {
   var idx = th.cellIndex;
   var shortDate = th.dataset.short || '';
   var table = th.closest('table');
   if (!table) return;
+  // If the user has highlighted specific rows, only copy those; otherwise
+  // copy every row (the unselected default — no regression from the
+  // pre-selection behaviour).
+  var selected = table.querySelectorAll('tbody tr.lab-row-selected');
+  var rows = selected.length > 0 ? selected : table.querySelectorAll('tbody tr[data-item]');
   var parts = [];
-  table.querySelectorAll('tbody tr').forEach(function(tr) {
+  rows.forEach(function(tr) {
     var item = tr.dataset.item;
     if (!item) return;
     var cell = tr.cells[idx];
