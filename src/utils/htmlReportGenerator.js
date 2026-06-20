@@ -498,15 +498,38 @@ function buildLabPivotPanel(items, patientMeta = {}) {
     if (Object.keys(egfrRow.dates).length > 0) itemMap['eGFR(計算)'] = egfrRow;
   }
 
+  // Synthesize eUPCR(計算) / eUACR(計算) when the lab only reports the raw
+  // urine components (urine protein + urine creatinine in mg/dL) without a
+  // pre-computed ratio. Without this rows like "Urine protein 4.50 mg/dL"
+  // are clinically opaque — the doctor would have to compute the ratio in
+  // their head to know if it crosses the 150 mg/g proteinuria threshold.
+  const { upcrByDate, uacrByDate } = computeUrineRatios(items);
+  const addSynthRatio = (rowName, byDate, threshold) => {
+    if (Object.keys(byDate).length === 0) return;
+    const dates = {};
+    for (const [date, ratio] of Object.entries(byDate)) {
+      const r = ratio < 10 ? ratio.toFixed(1) : ratio.toFixed(0);
+      dates[date] = { value: r, dir: ratio >= threshold ? 'high' : null, ref: `<${threshold}` };
+    }
+    itemMap[rowName] = { name: rowName, code: '', unit: 'mg/g', dates, order: -0.4, synthetic: 'urine-ratio' };
+  };
+  addSynthRatio('eUPCR(計算)', upcrByDate, 150);
+  addSynthRatio('eUACR(計算)', uacrByDate, 30);
+
   // Newest column leftmost
   const dates = [...dateSet].sort((a, b) => b.localeCompare(a));
 
   // Focused tests first (in defined order), then others by first-seen order.
-  // eGFR(計算) slots between Cr and GFR (Cr index + 0.5).
+  // eGFR(計算) slots between Cr and GFR; eUPCR/eUACR follow eGFR so the
+  // whole renal panel is clustered together.
   const focusedOrder = new Map();
   FOCUSED_LAB_TESTS.forEach((t, i) => { if (!focusedOrder.has(t.name)) focusedOrder.set(t.name, i); });
   const crIdx = focusedOrder.get('Cr');
-  if (crIdx != null) focusedOrder.set('eGFR(計算)', crIdx + 0.5);
+  if (crIdx != null) {
+    focusedOrder.set('eGFR(計算)', crIdx + 0.3);
+    focusedOrder.set('eUPCR(計算)', crIdx + 0.4);
+    focusedOrder.set('eUACR(計算)', crIdx + 0.5);
+  }
   const rowNames = Object.keys(itemMap).sort((a, b) => {
     const fa = focusedOrder.has(a) ? focusedOrder.get(a) : 1000 + itemMap[a].order;
     const fb = focusedOrder.has(b) ? focusedOrder.get(b) : 1000 + itemMap[b].order;
@@ -623,6 +646,66 @@ function isFemaleSex(s) {
   const v = String(s || '').trim().toUpperCase();
   return v === 'F' || v === 'FEMALE' || v === '2' || v === '女';
 }
+// Compute UPCR / UACR from raw urine concentrations when the lab didn't
+// pre-compute the ratio. Some labs only report the components (urine
+// protein + urine creatinine in mg/dL each) — the doctor would have to
+// divide them manually to know if proteinuria crosses the clinical
+// threshold. Returns { upcrByDate, uacrByDate } each keyed by ISO date.
+//   UPCR (mg/g) = urine_protein_mg/dL × 1000 / urine_creatinine_mg/dL
+//   UACR (mg/g) = urine_albumin_mg/dL × 1000 / urine_creatinine_mg/dL
+// (Albumin reported in mg/L gets divided by 10 to standardise to mg/dL.)
+function computeUrineRatios(rObject) {
+  if (!Array.isArray(rObject)) return { upcrByDate: {}, uacrByDate: {} };
+  const proteinByDate = {};
+  const albuminByDate = {}; // { value, unit }
+  const ucrByDate = {};
+  for (const l of rObject) {
+    const name = (l.assay_item_name || '').toString();
+    const orderName = (l.order_name || '').toString();
+    const code = (l.order_code || '').trim();
+    const unit = (l.unit_data || '').toString().toLowerCase().trim();
+    const val = parseFloat(l.assay_value);
+    const date = parseDate(l.real_inspect_date || l.recipe_date || '');
+    if (!isFinite(val) || val <= 0 || !date) continue;
+    // Skip rows already in ratio units (mg/g) — those are pre-computed
+    // UPCR/UACR; let them flow through the normal canonical pipeline.
+    if (/mg\s*\/\s*g/i.test(unit)) continue;
+    const joined = (name + ' ' + orderName).toLowerCase();
+    // Urine creatinine
+    if (code === '09016C' || /urine creatinine|尿.*肌酸酐|肌酸酐.*尿|\bu-?cr\b/i.test(joined)) {
+      if (ucrByDate[date] == null) ucrByDate[date] = val;
+      continue;
+    }
+    // Raw urine protein (NOT the pre-computed ratio). Guard: only treat as raw
+    // when the unit is a concentration (mg/dL) and the value is in the
+    // plausible-concentration range (< 500 mg/dL — even nephrotic-range
+    // protein is well under that).
+    if ((code === '09040C' || /urine protein|尿蛋白/i.test(joined)) && /mg\/?dl/i.test(unit) && val < 500) {
+      if (proteinByDate[date] == null) proteinByDate[date] = val;
+      continue;
+    }
+    // Raw urine microalbumin (concentration, not ratio)
+    if (/microalbumin|urine albumin|尿微?白蛋白/i.test(joined) && /mg\/?[dl]/i.test(unit)) {
+      if (albuminByDate[date] == null) albuminByDate[date] = { value: val, unit };
+      continue;
+    }
+  }
+  const upcrByDate = {};
+  for (const [date, p] of Object.entries(proteinByDate)) {
+    const ucr = ucrByDate[date];
+    if (ucr > 0) upcrByDate[date] = p * 1000 / ucr;
+  }
+  const uacrByDate = {};
+  for (const [date, a] of Object.entries(albuminByDate)) {
+    const ucr = ucrByDate[date];
+    if (!(ucr > 0)) continue;
+    // Standardise albumin to mg/dL — many labs report it as mg/L.
+    const aMgDl = /mg\s*\/\s*l\b/i.test(a.unit) && !/mg\s*\/\s*dl/i.test(a.unit) ? a.value / 10 : a.value;
+    uacrByDate[date] = aMgDl * 1000 / ucr;
+  }
+  return { upcrByDate, uacrByDate };
+}
+
 // Inputs: Scr in mg/dL, age in years, isFemale boolean. Returns eGFR or null.
 function computeEgfr(scr, age, isFemale) {
   if (!(scr > 0) || !(age > 0)) return null;
@@ -1026,7 +1109,25 @@ function getLatestLabValue(labData, canonical) {
 }
 function findAbnormalProteinuria(labData) {
   if (!labData?.rObject) return null;
-  // Pick the LATEST UPCR or UACR record per name, then test it
+
+  // First: synthesised ratios from raw components — catches labs that don't
+  // report a pre-computed UPCR/UACR, so the CKD badge still fires when
+  // proteinuria is real but only the components are on file.
+  const { upcrByDate, uacrByDate } = computeUrineRatios(labData.rObject);
+  const latestAbn = (byDate, threshold, label) => {
+    let best = null;
+    for (const [date, ratio] of Object.entries(byDate)) {
+      if (ratio < threshold) continue;
+      if (!best || date > best.date) {
+        best = { date, value: ratio.toFixed(0), ref: `<${threshold}`, code: '', name: label };
+      }
+    }
+    return best;
+  };
+  const synth = latestAbn(upcrByDate, 150, 'eUPCR(計算)') || latestAbn(uacrByDate, 30, 'eUACR(計算)');
+  if (synth) return synth;
+
+  // Then: pre-computed UPCR/UACR rows that came through the canonical pipeline
   const latestByName = {};
   for (const l of labData.rObject) {
     const n = canonicalLabName(l);
