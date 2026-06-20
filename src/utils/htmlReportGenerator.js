@@ -277,6 +277,38 @@ const URINE_HINT = /\burine\b|\burinary\b|尿液|\(\s*尿\s*\)|（\s*尿\s*）|[
 // urine glucose, never blood.
 const URINALYSIS_ORDER_CODES = new Set(['06012C']);
 
+// Read the specimen type straight from NHI's metadata — we used to only
+// parse the assay_item_name string, which missed plenty of cases where the
+// item is named generically ("Protein", "Glucose") but inspect_mode says
+// "尿液". Reading the structured fields first cleans up almost every
+// blood-vs-urine mix-up we'd been patching around.
+function specimenOf(l) {
+  const mode = String(l.inspect_mode || '').trim().toUpperCase();
+  if (/尿液|URINE|SPOT|RANDOM URINE/.test(mode)) return 'urine';
+  if (/血液|SERUM|PLASMA|\bBLOOD\b|WHOLE BLOOD/.test(mode)) return 'serum';
+  if (/糞便|STOOL|FECES/.test(mode)) return 'feces';
+
+  const tp = String(l.assay_tp_cname || '');
+  if (/尿液/.test(tp)) return 'urine';
+  if (/糞便/.test(tp)) return 'feces';
+
+  const order = String(l.order_name || '');
+  if (URINE_HINT.test(order)) return 'urine';
+  if (/、血|血液|\bblood\b|\bserum\b|\bplasma\b/i.test(order)) return 'serum';
+
+  return 'unknown';
+}
+
+// Append (尿) to a canonical name so a urine variant doesn't visually
+// collide with the blood version of the same analyte. Idempotent — if the
+// name already advertises urine in any form, leaves it alone.
+function appendUrineMark(name) {
+  if (!name) return name;
+  if (/[(（]\s*尿\s*[)）]/.test(name)) return name;
+  if (URINE_HINT.test(name)) return name;
+  return `${name}(尿)`;
+}
+
 // Urine dipstick semi-quantitative marker: "(3+)", "(+)", "(+/-)", "(-)".
 // Blood chemistry values never carry these — they're a reliable "this is a
 // urine dipstick result" signal even when the value also has a number
@@ -311,12 +343,13 @@ function canonicalLabName(l) {
   const rawName = l.assay_item_name || l.order_name || '';
   const orderCode = (l.order_code || '').trim();
 
-  // Negative hint: urine-tagged items keep their raw name. Without this,
-  // "Creatinine (Urine)" / "Cr(Urine)" get parens-stripped → "creatinine"
-  // → "Cr" alias, then eGFR row sees urine Cr values (50-300 mg/dL) and
-  // reports stage 5.
-  if (URINE_HINT.test(rawName)) return (rawName || orderCode || '?').trim();
+  // PRIMARY signal: NHI's structured specimen fields (inspect_mode,
+  // assay_tp_cname, order_name's 「、血」/「尿蛋白」 conventions). Falls
+  // back to scanning the analyte name itself only when NHI didn't tell us.
+  let specimen = specimenOf(l);
+  if (specimen === 'unknown' && URINE_HINT.test(rawName)) specimen = 'urine';
 
+  // Resolve to the canonical analyte name via aliases (Cr/BUN/HbA1c/...).
   const norm = normalizeLabName(rawName);
   let canon = LAB_ALIAS_LOOKUP.get(norm);
   if (!canon) {
@@ -324,37 +357,27 @@ function canonicalLabName(l) {
     if (noParen) canon = LAB_ALIAS_LOOKUP.get(noParen);
   }
 
-  // Safety net for labs that generically name urine/dialysate Cr just "Cr" or
-  // "Creatinine" with no urine tag. Two giveaways:
-  //   - assay_value > 15 mg/dL (serum never reaches this even in ESRD)
-  //   - consult_value upper bound > 5 mg/dL (serum range is always <2)
-  // Isolate these into a distinct row name so itemMap['Cr'] only contains
-  // genuine serum Cr, and the eGFR row builder stays clean.
-  if (canon === 'Cr') {
+  // Plausibility backup for the rare lab that reports urine Cr generically
+  // ("Cr" with no specimen field). Serum Cr maxes around ~15 mg/dL even in
+  // ESRD and its reference upper bound is always <2; anything larger is
+  // urine concentration leaking in.
+  if (canon === 'Cr' && specimen !== 'serum') {
     const val = parseFloat(l.assay_value);
     const refMax = parseRefMax(l.consult_value);
-    const bogusValue = !isNaN(val) && val > 15;
-    const bogusRef = refMax != null && refMax > 5;
-    if (bogusValue || bogusRef) {
-      console.warn(`[NHITW Clinic] '${rawName}' (${orderCode}) val=${l.assay_value} ref=${l.consult_value} — not serum Cr, isolating`);
-      return `${rawName} [${orderCode}|ref ${l.consult_value || '?'}]`;
+    if ((!isNaN(val) && val > 15) || (refMax != null && refMax > 5)) {
+      specimen = 'urine';
     }
   }
 
-  // Urine glucose masquerading as blood Glucose (same family of bug as Cr).
-  // Blood glucose is always a plain number; urine dipstick glucose carries a
-  // semi-quant marker ("500 (3+)", "(+/-)"), is purely qualitative
-  // ("Negative"), or comes from the urinalysis panel (06012C). Route it to a
-  // dedicated 尿糖 row so it neither merges with nor displaces blood glucose.
-  if (canon === 'Glucose') {
-    if (URINALYSIS_ORDER_CODES.has(orderCode) || isUrineDipstickValue(l.assay_value)) {
-      console.warn(`[NHITW Clinic] '${rawName}' (${orderCode}) val='${l.assay_value}' — urine glucose, isolating to 尿糖`);
-      return '尿糖';
-    }
+  // Urine glucose: keep the Chinese idiom 尿糖 (clearer than Glucose(尿) for
+  // dipstick semi-quant results like 500(3+)).
+  if (canon === 'Glucose' &&
+      (specimen === 'urine' || URINALYSIS_ORDER_CODES.has(orderCode) || isUrineDipstickValue(l.assay_value))) {
+    return '尿糖';
   }
 
-  if (canon) return canon;
-  return (rawName || orderCode || '?').trim();
+  const baseName = canon || (rawName || orderCode || '?').trim();
+  return specimen === 'urine' ? appendUrineMark(baseName) : baseName;
 }
 
 // Fallback units when the NHI lab response omits unit_data for a known test.
