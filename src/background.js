@@ -166,12 +166,25 @@ async function autoExportToSharedFolder() {
     // ID instead of the patient (e.g. 孟卉妍 → P223307767 incident). All
     // values are masked / structural — the snippet captured from DOM has
     // PHI replaced with [ID]/[漢]. See buildIdentityProbeComment.
+    // Snapshot which medical data types currently hold records. If a future
+    // report shows '仲呈銘 + 結腸瘤' style mix-up again, this counts row will
+    // catch it: if dataAtExport shows chinesemedData=0 the moment after we
+    // resolve to patient X but the report STILL renders 中藥 entries, the
+    // residue is sneaking in through some channel we haven't traced yet.
+    const dataAtExport = {};
+    for (const [k, v] of Object.entries(currentSessionData)) {
+      if (IDENTITY_KEYS.has(k)) continue;
+      const arr = v?.rObject;
+      dataAtExport[k] = Array.isArray(arr) ? arr.length : (v == null ? 0 : 'present');
+    }
+
     patientMeta._identityProbe = {
       generatedAt: new Date().toISOString(),
       resolvedName: maskPii(patientName, 1, 1),
       resolvedId: maskPii(patientId, 4, 3),
       nameSource: patientName === patientId ? 'fallback_to_id' : (currentSessionData.patientName ? 'cache' : 'fresh'),
       activeTabId: _activePatientTabId,
+      dataAtExport,
       cached: {
         name: maskPii(currentSessionData.patientName || '', 1, 1),
         id: maskPii(currentSessionData.patientIdFromToken || '', 4, 3),
@@ -438,6 +451,20 @@ const ACTION_HANDLERS = new Map([
     if (sender?.tab?.id) _activePatientTabId = sender.tab.id;
     currentSessionData.token = message.token;
     currentSessionData.currentUserSession = message.userSession || currentSessionData.currentUserSession;
+    // Cross-patient data-residue guard: when the new token's patient ID
+    // doesn't match the cached one, wipe medical payloads BEFORE adopting
+    // the new identity. Without this, the doctor switching from patient X
+    // to 仲呈銘 fast can race the content-script's clearSessionData message;
+    // the 6-second export debounce then fires with 仲呈銘 identity +
+    // patient X's labs/meds/diagnoses still in currentSessionData. We saw
+    // exactly this on 2026-06-22 20:20:26 — a 53-year-old male's report
+    // contained the prior patient's 結腸瘤追蹤 + N951 停經 diagnoses.
+    if (message.patientIdFromToken &&
+        currentSessionData.patientIdFromToken &&
+        message.patientIdFromToken !== currentSessionData.patientIdFromToken) {
+      console.log(`[NHITW Clinic] saveToken patient switched (${maskPii(currentSessionData.patientIdFromToken, 4, 3)} → ${maskPii(message.patientIdFromToken, 4, 3)}) — clearing residual medical data`);
+      clearMedicalData();
+    }
     // Update (name, id) atomically — never mix a new ID with a stale name.
     // When the doctor switches patients, the new saveToken brings the new ID;
     // we wipe the old name in the same step so a later half-fresh getPatientInfo
