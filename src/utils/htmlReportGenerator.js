@@ -226,6 +226,10 @@ const LAB_ALIAS = [
   ['Eosinophil', ['eosinophil', 'eo', '嗜伊紅性白血球', '嗜酸性球', '嗜伊紅白血球']],
   ['Basophil', ['basophil', 'baso', '嗜鹼性白血球']],
   ['Glucose', ['glucose', 'sugar', 'ac sugar', 'blood sugar', '葡萄糖', '血糖', '飯前血糖', '空腹血糖', '飯前血糖(ac)', 'glucose ac', 'glucose (ac)', 'glucose(ac)', 'glu.(ac)', 'glu (ac)', 'glu(ac)', 'glu ac', 'ac glucose']],
+  ['Glucose PC', ['glucose pc', 'glucose (pc)', 'glucose(pc)', 'glu.(pc)', 'glu (pc)', 'glu(pc)', 'glu pc', 'pc sugar', 'pc glucose', 'glucose post cibum', 'glucose-pc', 'glucose-post cibum', '飯後血糖', '餐後血糖', 'glucose-post cibum, pc']],
+  ['HbA1c', ['hba1c', 'hb a1c', 'a1c', 'hemoglobin a1c', '糖化血色素', '糖化血紅素']],
+  ['Microalbumin', ['microalbumin', 'micro albumin', 'micro-albumin', '微量白蛋白', '尿微量白蛋白', 'urine microalbumin']],
+  ['Urine creatinine', ['urine creatinine', 'urine cr', 'u-cr', 'u cr', '尿肌酸酐', '尿肌酐', '肌酸酐,尿', '肌酐,尿', '肌酐、尿']],
   ['Amylase', ['amylase', 'amylase(b)', '血液澱粉脢', '澱粉酶', '澱粉脢']],
   ['Lipase', ['lipase', '解脂脢', '脂肪酶', '脂解酶']],
   ['ALK-P', ['alk-p', 'alkp', 'alp', '鹼性磷酸脢', '鹼性磷酸酶', '鹼性磷酸酵素']],
@@ -266,6 +270,48 @@ const LAB_ALIAS_LOOKUP = (() => {
   return m;
 })();
 
+// Some hospitals (notably 衛生所 systems) drop the raw NHI order code into
+// the assay_item_name field instead of an analyte name — so '09005C' shows
+// up alongside 'Glucose' as a sibling row even though they're the SAME
+// measurement. ORDER_CODE_NAME translates the code string back to the
+// canonical name so the alias pipeline can merge them. Urine variants
+// (e.g. 09016C) still get the (尿) suffix appended by appendUrineMark via
+// the specimen detector — we only resolve the analyte identity here.
+const ORDER_CODE_NAME = {
+  // CBC
+  '08011C': 'Hb',
+  // Renal / metabolic
+  '09002C': 'BUN',
+  '09015C': 'Cr',
+  '09016C': 'Urine creatinine',  // urine Cr; (尿) suffix added by specimenOf
+  '09013C': 'U.A',
+  // Glucose
+  '09005C': 'Glucose',
+  '09140C': 'Glucose PC',         // 餐後 / Post Cibum
+  '09006C': 'HbA1c',
+  // Liver / enzymes
+  '09025C': 'GOT',
+  '09026C': 'GPT',
+  '09027C': 'ALK-P',
+  '09029C': 'T-Bil',
+  '09030C': 'D-Bil',
+  '09031C': 'γ-GT',
+  '09032C': 'CPK',
+  // Lipids
+  '09001C': 'Chol',
+  '09004C': 'TG',
+  '09043C': 'HDL',
+  '09044C': 'LDL',
+  // Electrolytes
+  '09021C': 'Na',
+  '09022C': 'K',
+  // Inflammation / proteinuria
+  '12015C': 'CRP',
+  '12111C': 'Microalbumin',       // (尿) appended automatically
+  '09040C': 'UPCR',
+  '09038C': 'Alb',
+};
+
 // Urine-sample tag. Catches the common ways labs label urine analytes
 // WITHOUT false-positiving on benign Chinese compounds (尿酸 uric acid,
 // 尿素氮 BUN) — those start with 尿 directly, no separator. The Chinese
@@ -282,7 +328,23 @@ const URINALYSIS_ORDER_CODES = new Set(['06012C']);
 // item is named generically ("Protein", "Glucose") but inspect_mode says
 // "尿液". Reading the structured fields first cleans up almost every
 // blood-vs-urine mix-up we'd been patching around.
+// NHI order codes that ALWAYS describe a urine measurement, regardless of
+// how a given hospital labels inspect_mode / order_name. Lets us pin urine
+// specimen identity even when the raw fields are sparse (e.g. inspect_mode
+// just says "採集").
+const URINE_ORDER_CODES = new Set([
+  '09016C', // Urine creatinine
+  '09040C', // UPCR
+  '12111C', // Microalbumin (UACR component)
+]);
+
 function specimenOf(l) {
+  // Authoritative: NHI order codes that describe specifically-urine
+  // analytes. Anchor on these first so a sparse inspect_mode (e.g. "採集",
+  // "N") doesn't strand the row as specimen='unknown'.
+  const code = String(l.order_code || '').trim();
+  if (URINE_ORDER_CODES.has(code)) return 'urine';
+
   const mode = String(l.inspect_mode || '').trim().toUpperCase();
   if (/尿液|URINE|SPOT|RANDOM URINE/.test(mode)) return 'urine';
   if (/血液|SERUM|PLASMA|\bBLOOD\b|WHOLE BLOOD/.test(mode)) return 'serum';
@@ -356,6 +418,12 @@ function canonicalLabName(l) {
     const noParen = norm.replace(/\(.*?\)/g, '').trim();
     if (noParen) canon = LAB_ALIAS_LOOKUP.get(noParen);
   }
+  // Fallback: 衛生所 / 區域醫院 sometimes ship the raw order code as the
+  // assay_item_name (so we see '09005C' as a sibling of 'Glucose'). When the
+  // alias path missed, translate the order_code itself — merges the two rows.
+  if (!canon && orderCode && ORDER_CODE_NAME[orderCode]) {
+    canon = ORDER_CODE_NAME[orderCode];
+  }
 
   // Plausibility backup for the rare lab that reports urine Cr generically
   // ("Cr" with no specimen field). Serum Cr maxes around ~15 mg/dL even in
@@ -388,7 +456,7 @@ const DEFAULT_UNITS = {
   MCV:'fL', MCH:'pg', MCHC:'g/dL', RDW:'%', MPV:'fL',
   Neutrophil:'%', Lymphocyte:'%', Monocyte:'%', Eosinophil:'%', Basophil:'%',
   // Biochem
-  BUN:'mg/dL', Cr:'mg/dL', 'U.A':'mg/dL', Glucose:'mg/dL', HbA1c:'%',
+  BUN:'mg/dL', Cr:'mg/dL', 'U.A':'mg/dL', Glucose:'mg/dL', 'Glucose PC':'mg/dL', HbA1c:'%', 'γ-GT':'U/L', CPK:'U/L', Microalbumin:'mg/L', 'Urine creatinine':'mg/dL',
   Alb:'g/dL', 'T-Bil':'mg/dL', 'D-Bil':'mg/dL',
   GOT:'U/L', GPT:'U/L', 'ALK-P':'U/L', Amylase:'U/L', Lipase:'U/L',
   // Lipids
@@ -411,6 +479,7 @@ const FOCUSED_LAB_TESTS = [
   { orderCode: '12111C', name: 'UACR', enabled: true },
   { orderCode: '09038C', name: 'Alb', enabled: true },
   { orderCode: '09005C', name: 'Glucose', enabled: true },
+  { orderCode: '09140C', name: 'Glucose PC', enabled: true },
   { orderCode: '09006C', name: 'HbA1c', enabled: true },
   { orderCode: '09001C', name: 'Chol', enabled: true },
   { orderCode: '09004C', name: 'TG', enabled: true },
