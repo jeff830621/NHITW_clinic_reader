@@ -161,6 +161,32 @@ async function autoExportToSharedFolder() {
     if (!patientName) patientName = patientId;
     console.log(`[NHITW Clinic] Export: ID=${maskPii(patientId, 4, 3)}, Name=${maskPii(patientName, 1, 1)}`);
 
+    // Identity probe: rides into the report as a hidden HTML comment so we
+    // can investigate cases where the doctor sees a report named after the
+    // ID instead of the patient (e.g. 孟卉妍 → P223307767 incident). All
+    // values are masked / structural — the snippet captured from DOM has
+    // PHI replaced with [ID]/[漢]. See buildIdentityProbeComment.
+    patientMeta._identityProbe = {
+      generatedAt: new Date().toISOString(),
+      resolvedName: maskPii(patientName, 1, 1),
+      resolvedId: maskPii(patientId, 4, 3),
+      nameSource: patientName === patientId ? 'fallback_to_id' : (currentSessionData.patientName ? 'cache' : 'fresh'),
+      activeTabId: _activePatientTabId,
+      cached: {
+        name: maskPii(currentSessionData.patientName || '', 1, 1),
+        id: maskPii(currentSessionData.patientIdFromToken || '', 4, 3),
+        session: currentSessionData.currentUserSession || null,
+      },
+      freshFromTab: fresh ? {
+        name: maskPii(fresh.name || '', 1, 1),
+        id: maskPii(fresh.id || '', 4, 3),
+        hasAge: fresh.age != null,
+        hasSex: !!fresh.sex,
+        hasBirthday: !!fresh.birthday,
+        _debug: fresh._debug || null,
+      } : null,
+    };
+
     const exportData = {};
     for (const [key, value] of Object.entries(currentSessionData)) {
       if (key !== 'token' && key !== 'currentUserSession' && value) {

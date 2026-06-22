@@ -1923,13 +1923,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     let age = null;
     let sex = '';
     let birthday = '';
+    const tokenNames = ['jwt_token', 'token', 'access_token', 'auth_token'];
+      let raw = null;
+    let usedTokenKey = null;
+    // Privacy: collect ONLY field names + booleans, never raw PHI values.
+    // The whole payload travels into an HTML comment inside the shared-folder
+    // report, so anything we record here is potentially visible to clinic
+    // staff who can open that file. Masks + key-only dumps everywhere.
+    const dbg = {
+      generatedAt: new Date().toISOString(),
+      docTitle: '',
+      urlPath: '',
+      sessionStorageKeys: [],
+      jwtTried: [],
+      jwtUsedKey: null,
+      jwtPayloadKeys: null,
+      jwtFields: { UserID: false, UserName: false, UserSex: false, UserBirthday: false },
+      jwtDecodeError: null,
+      domMarkerFound: false,
+      domSnippetSanitised: '',
+      domIdMatched: false,
+      domNameMatched: false,
+    };
+    try { dbg.docTitle = (document.title || '').slice(0, 80); } catch (_) {}
+    try { dbg.urlPath = location.pathname || ''; } catch (_) {}
     try {
-      const tokenNames = ['jwt_token', 'token', 'access_token', 'auth_token'];
+      const sk = [];
+      for (let i = 0; i < sessionStorage.length; i++) sk.push(sessionStorage.key(i));
+      dbg.sessionStorageKeys = sk.sort();
+    } catch (_) {}
+    try {
       let raw = null;
       for (const n of tokenNames) {
         const v = sessionStorage.getItem(n);
-        if (v) { raw = v.startsWith('Bearer ') ? v.slice(7) : v; break; }
+        dbg.jwtTried.push(n + (v ? ':present' : ':absent'));
+        if (v && !raw) {
+          raw = v.startsWith('Bearer ') ? v.slice(7) : v;
+          usedTokenKey = n;
+        }
       }
+      dbg.jwtUsedKey = usedTokenKey;
       if (raw && raw.split('.').length === 3) {
         let b64 = raw.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
         while (b64.length % 4) b64 += '=';
@@ -1941,6 +1974,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         id = payload.UserID || '';
         sex = payload.UserSex || '';
         birthday = payload.UserBirthday || '';
+        dbg.jwtPayloadKeys = Object.keys(payload).sort();
+        dbg.jwtFields.UserID = !!payload.UserID;
+        dbg.jwtFields.UserName = !!payload.UserName;
+        dbg.jwtFields.UserSex = !!payload.UserSex;
+        dbg.jwtFields.UserBirthday = !!payload.UserBirthday;
         // ROC YYYMMDD → AD year then compute age (same as extractUserInfoFromToken)
         if (birthday && birthday.length === 7) {
           const rocYear = parseInt(birthday.substring(0, 3), 10);
@@ -1957,27 +1995,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
     } catch (e) {
+      dbg.jwtDecodeError = String(e && e.message || e).slice(0, 120);
       console.warn('[NHITW Clinic] getPatientInfo decode failed:', e.message);
     }
     // DOM fallback — getPatientInfo previously only decoded the JWT, so when
     // a hospital's JWT omits UserName it returned a nameless response and the
     // export downgraded the report filename to the ID number. Mirror
     // extractUserInfoFromToken's DOM scrape so this path is just as robust.
-    if (!name || !id) {
-      try {
-        const bodyText = document.body.innerText || '';
-        if (!id) {
-          const idMatch = bodyText.match(/身分證[號字]?[：:]\s*([A-Z]\d{9})/);
-          if (idMatch) id = idMatch[1];
-        }
-        if (!name) {
-          const nameMatch = bodyText.match(/身分證[號字]?[：:]\s*[A-Z][\d*]{9}\s+([一-龥]+)/);
-          if (nameMatch) name = nameMatch[1].trim();
-        }
-      } catch (_) { /* ignore */ }
-    }
+    try {
+      const bodyText = document.body.innerText || '';
+      const idx = bodyText.indexOf('身分證');
+      dbg.domMarkerFound = idx >= 0;
+      if (idx >= 0) {
+        // Mask raw PHI values but preserve STRUCTURE so we can see whether the
+        // name is positioned where our regex expects (and what the separator
+        // looks like). 'P223307767 孟卉妍 40歲' → '身分證號：[ID] [姓名] 40歲'.
+        let snip = bodyText.substring(idx, idx + 100);
+        snip = snip
+          .replace(/[A-Z][\d*]{8,11}/g, '[ID]')
+          .replace(/[一-龥]{2,5}/g, '[漢]')
+          .replace(/\s+/g, ' ')
+          .trim();
+        dbg.domSnippetSanitised = snip;
+      }
+      if (!id) {
+        const idMatch = bodyText.match(/身分證[號字]?[：:]\s*([A-Z]\d{9})/);
+        if (idMatch) { id = idMatch[1]; dbg.domIdMatched = true; }
+      }
+      if (!name) {
+        const nameMatch = bodyText.match(/身分證[號字]?[：:]\s*[A-Z][\d*]{9}\s+([一-龥]+)/);
+        if (nameMatch) { name = nameMatch[1].trim(); dbg.domNameMatched = true; }
+      }
+    } catch (_) { /* ignore */ }
     console.log('[NHITW Clinic] getPatientInfo →', { name: maskPii(name, 1, 1), id: maskPii(id, 4, 3), age, sex });
-    sendResponse({ name, id, age, sex, birthday });
+    sendResponse({ name, id, age, sex, birthday, _debug: dbg });
     return true;
   }
 

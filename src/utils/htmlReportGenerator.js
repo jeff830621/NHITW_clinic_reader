@@ -34,6 +34,11 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
   // HTML-comment probe instead so the doctor can send us a generated
   // file and we'll know how to wire ICDs into the diagnosis panel.
   const acupunctureProbeHtml = buildAcupunctureProbeComment(data.acupunctureData);
+  // Identity probe — emitted on every report regardless of whether labs are
+  // present (the previous probe rode along with the lab debug, which left
+  // pure-中藥 patients like 孟卉妍 untraced when the filename downgraded to
+  // their ID. Always-on so the next mis-named export carries diagnosis info).
+  const identityProbeHtml = buildIdentityProbeComment(patientMeta && patientMeta._identityProbe);
   const acuBadgeHtml = buildAcupunctureBadge(data);
   const cancerBadgeHtml = buildCancerCareBadge(data);
   const asthmaBadgeHtml = buildAsthmaBadge(data, patientMeta);
@@ -44,6 +49,7 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
     diagnosisHtml, labPivotHtml, westMedHtml, otherWestMedHtml, chineseMedHtml,
     imagingHtml, allergyHtml, surgeryHtml, dischargeHtml,
     adultHealthHtml, cancerScreeningHtml, hbcvHtml, acupunctureProbeHtml,
+    identityProbeHtml,
     acuBadgeHtml, cancerBadgeHtml, asthmaBadgeHtml, ckdBadgeHtml,
     patientMetaLine
   });
@@ -729,6 +735,22 @@ function buildAcupunctureProbeComment(rawData) {
     return `\n<!-- NHITW-ACU-PROBE-START\n${json}\nNHITW-ACU-PROBE-END -->\n`;
   } catch (e) {
     return `\n<!-- NHITW-ACU-PROBE error: ${String(e && e.message || e).replace(/--+/g, '-')} -->\n`;
+  }
+}
+
+// Hidden probe for the patient-identity pipeline. Background.js fills the
+// patientMeta._identityProbe bag with masked values + structural debug from
+// the legacyContent getPatientInfo handler. Emitted as an HTML comment so it
+// has zero visual impact; lets us inspect WHY a particular export lost the
+// patient name (JWT lacked UserName? DOM scrape regex missed? sessionStorage
+// had no token at all?) without making the doctor open DevTools.
+function buildIdentityProbeComment(probe) {
+  if (!probe) return '';
+  try {
+    const json = JSON.stringify(probe, null, 2).replace(/--+/g, m => m.split('').join('​'));
+    return `\n<!-- NHITW-IDENTITY-PROBE-START\n${json}\nNHITW-IDENTITY-PROBE-END -->\n`;
+  } catch (e) {
+    return `\n<!-- NHITW-IDENTITY-PROBE error: ${String(e && e.message || e).replace(/--+/g, '-')} -->\n`;
   }
 }
 
@@ -2029,7 +2051,7 @@ function copyLabColumn(th) {
   }
 }
 </script>
-${panels.acupunctureProbeHtml || ''}
+${panels.acupunctureProbeHtml || ''}${panels.identityProbeHtml || ''}
 </body>
 </html>`;
 }
