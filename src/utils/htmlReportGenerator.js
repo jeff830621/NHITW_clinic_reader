@@ -424,11 +424,20 @@ function canonicalLabName(l) {
     const noParen = norm.replace(/\(.*?\)/g, '').trim();
     if (noParen) canon = LAB_ALIAS_LOOKUP.get(noParen);
   }
-  // Fallback: 衛生所 / 區域醫院 sometimes ship the raw order code as the
-  // assay_item_name (so we see '09005C' as a sibling of 'Glucose'). When the
-  // alias path missed, translate the order_code itself — merges the two rows.
+  // Fallback: 衛生所 / 區域醫院 sometimes ship the raw NHI order code as
+  // the assay_item_name (so we see '09005C' as a sibling of 'Glucose').
+  // Translate the code only when rawName IS that bare code — otherwise we'd
+  // collapse legitimately distinct sub-items that share an order_code into
+  // their parent. 劉志明 2026-06-23 case: '腎絲球過濾率(新);(eGFR-CKD-EPI)'
+  // and 'GFR' both ride under 09015C, so the unguarded fallback was
+  // dumping every eGFR value into the Cr row (Cr cell ended up showing
+  // '26.4 / 25.29 / 2.53' where 25.29 was actually GFR).
   if (!canon && orderCode && ORDER_CODE_NAME[orderCode]) {
-    canon = ORDER_CODE_NAME[orderCode];
+    const trimmedRaw = (rawName || '').trim().toUpperCase();
+    const isBareOrderCode = /^\d{5}[A-Z]$/.test(trimmedRaw);
+    if (isBareOrderCode && trimmedRaw === orderCode.toUpperCase()) {
+      canon = ORDER_CODE_NAME[orderCode];
+    }
   }
 
   // Plausibility backup for the rare lab that reports urine Cr generically
