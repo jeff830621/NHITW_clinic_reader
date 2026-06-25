@@ -1223,7 +1223,7 @@ function buildAsthmaBadge(data, patientMeta = {}) {
   const shown = codes.slice(0, 8).join(', ');
   const more = codes.length > 8 ? `… (+${codes.length - 8})` : '';
   const tooltip = `符合中醫氣喘專案：收案年−出生年=${diff} (<12)，曾下氣喘診斷\n命中 ICD: ${shown}${more}`;
-  return `<span class="asthma-badge" title="${esc(tooltip)}">🫁 氣喘專案（年差${diff}）</span>`;
+  return `<span class="asthma-badge" title="${esc(tooltip)}">🫁 氣喘專案</span>`;
 }
 
 // --- 中醫慢性腎臟病門診加強照護方案 ---
