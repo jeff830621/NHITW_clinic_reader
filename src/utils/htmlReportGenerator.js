@@ -246,8 +246,18 @@ const LAB_ALIAS = [
   ['Na', ['na', 'sodium', '鈉']],
   ['K', ['k', 'potassium', '鉀']],
   ['Cl', ['cl', 'chloride', '氯']],
-  ['GOT', ['got', 'ast', 'sgot', 's.g.o.t', 's.g.o.t (ast)', 's.g.o.t. (ast)', '天門冬胺酸轉胺酶', '天門冬胺酸胺基轉移酶']],
-  ['GPT', ['gpt', 'alt', 'sgpt', 's.g.p.t', 's.g.p.t (alt)', 's.g.p.t. (alt)', '丙胺酸轉胺酶', '丙胺酸胺基轉移酶']],
+  ['GOT', ['got', 'ast', 'sgot', 's.g.o.t', 's.g.o.t (ast)', 's.g.o.t. (ast)', 's-got', 's-got/ast', '天門冬胺酸轉胺酶', '天門冬胺酸胺基轉移酶', '血清麩胺酸苯醋酸轉氨基', '血清麩胺酸苯醋酸轉氨基酶', '麩胺酸苯醋酸轉氨基', '麩胺酸苯醋酸轉氨基酶']],
+  ['GPT', ['gpt', 'alt', 'sgpt', 's.g.p.t', 's.g.p.t (alt)', 's.g.p.t. (alt)', 's-gpt', 's-gpt/alt', '丙胺酸轉胺酶', '丙胺酸胺基轉移酶', '血清麩胺酸丙酮酸轉氨基', '血清麩胺酸丙酮酸轉氨基酶', '麩胺酸丙酮酸轉氨基', '麩胺酸丙酮酸轉氨基酶']],
+  // Thyroid — long Chinese names dominate the leftmost sticky column,
+  // squeezing the data columns. Map each to the standard short form a
+  // clinician actually uses at a glance.
+  ['TSH', ['tsh', 'tsh (eia/lia)', 'thyroid stimulating hormone', '甲狀腺刺激素', '甲狀腺促素', '促甲狀腺素', '甲狀腺刺激素免疫分析']],
+  ['Free T4', ['free t4', 'ft4', 'free thyroxine', 'free t4 (eia/lia)', '游離甲狀腺素', '游離甲狀腺素免疫分析', '游離四碘甲狀腺素']],
+  ['T3', ['t3', 'triiodothyronine', 'total t3', '三碘甲狀腺素', '三碘甲狀腺素免疫分析']],
+  ['Free T3', ['free t3', 'ft3', '游離三碘甲狀腺素']],
+  ['T4', ['t4', 'thyroxine', 'total t4', '甲狀腺素']],
+  ['Anti-TPO', ['anti-tpo', 'anti tpo', 'anti-tpo ab', 'tpo ab', 'tpo antibody', '甲狀腺過氧化酶抗體', '抗甲狀腺過氧化酶抗體', '甲狀腺過氧化酵素抗體']],
+  ['ATA', ['ata', 'anti-tg', 'anti tg', 'anti-thyroglobulin', 'thyroglobulin antibody', '甲狀腺球蛋白抗體', '抗甲狀腺球蛋白抗體']],
   ['CRP', ['crp', 'c反應蛋白', 'c-反應蛋白', 'c 反應蛋白', 'c-reactive protein', 'crp, c-reactive protein', 'crp，c-reactive protein']],
   // Lipid panel — hospitals report these under many variant names. Without
   // these aliases the report shows duplicate rows ('Chol' vs 'Cholesterol'
@@ -265,6 +275,8 @@ function normalizeLabName(s) {
     .replace(/[－–—]/g, '-')                   // fullwidth/EN/EM dashes → ascii hyphen
                                                //   (HDL－cholesterol vs HDL-cholesterol)
     .replace(/（/g, '(').replace(/）/g, ')')   // fullwidth parens
+    .replace(/[?？]+\s*$/, '')                 // strip trailing ? (display truncation,
+                                               //   e.g. 「血清麩胺酸苯醋酸轉氨基?」)
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -472,6 +484,8 @@ const DEFAULT_UNITS = {
   Neutrophil:'%', Lymphocyte:'%', Monocyte:'%', Eosinophil:'%', Basophil:'%',
   // Biochem
   BUN:'mg/dL', Cr:'mg/dL', 'U.A':'mg/dL', Glucose:'mg/dL', 'Glucose PC':'mg/dL', HbA1c:'%', 'γ-GT':'U/L', CPK:'U/L', Microalbumin:'mg/L', 'Urine creatinine':'mg/dL',
+  // Thyroid
+  TSH:'μIU/mL', 'Free T4':'ng/dL', 'Free T3':'pg/mL', T3:'ng/mL', T4:'μg/dL', 'Anti-TPO':'IU/mL', ATA:'IU/mL',
   Alb:'g/dL', 'T-Bil':'mg/dL', 'D-Bil':'mg/dL',
   GOT:'U/L', GPT:'U/L', 'ALK-P':'U/L', Amylase:'U/L', Lipase:'U/L',
   // Lipids
