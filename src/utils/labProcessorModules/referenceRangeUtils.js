@@ -144,6 +144,23 @@ const referenceRangeStrategies = new Map([
       const firstBracket = doubleBracketMatch[1].trim();
       const secondBracket = doubleBracketMatch[2].trim();
 
+      // Detect a hyphen-range inside EITHER bracket first. Some labs send
+      // both brackets containing the same range string, sometimes with the
+      // unit appended ('[15-37 U/L][15-37 U/L]'). Without this short-circuit
+      // the per-bracket "take first numeric token" path would yield
+      // min=max=15 → the bogus '15-15' tooltip the user spotted on 王云's
+      // GOT row 2026-06-04.
+      const hyphenInFirst = firstBracket.match(/(-?\d*\.?\d+)\s*[-~]\s*(-?\d*\.?\d+)/);
+      const hyphenInSecond = secondBracket.match(/(-?\d*\.?\d+)\s*[-~]\s*(-?\d*\.?\d+)/);
+      const hyphen = hyphenInFirst || hyphenInSecond;
+      if (hyphen) {
+        const lo = parseFloat(hyphen[1]);
+        const hi = parseFloat(hyphen[2]);
+        if (!isNaN(lo) && !isNaN(hi)) {
+          return { min: lo, max: hi };
+        }
+      }
+
       // 處理上限值
       let max = null;
       if (secondBracket && secondBracket !== '') {

@@ -897,7 +897,13 @@ function checkAbnormal(value, reference, orderCode) {
 // falls back to the robust parser for [min][max], <X, ≧X, etc.
 function labRefRange(reference, orderCode) {
   const s = String(reference || '');
-  const m = s.match(/\[\s*(-?\d*\.?\d+)\s*[-~]\s*(-?\d*\.?\d+)\s*\]/);
+  // Allow non-`]` content after the upper bound (most often a unit suffix
+  // like '15-37 U/L'). Without this the regex fails, falls through to
+  // parseReferenceRange's doubleBracketRange, which then strips only the
+  // FIRST numeric token from each bracket — so '[15-37 U/L][15-37 U/L]'
+  // ends up parsed as min=15 max=15 and the tooltip shows the bogus
+  // '15-15' (王云 thyroid panel 2026/06/04 case).
+  const m = s.match(/\[\s*(-?\d*\.?\d+)\s*[-~]\s*(-?\d*\.?\d+)[^\]]*\]/);
   if (m) {
     const lo = parseFloat(m[1]);
     const hi = parseFloat(m[2]);
