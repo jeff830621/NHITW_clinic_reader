@@ -231,9 +231,9 @@ const LAB_ALIAS = [
   ['Monocyte', ['monocyte', 'mono', '單核球']],
   ['Eosinophil', ['eosinophil', 'eo', '嗜伊紅性白血球', '嗜酸性球', '嗜伊紅白血球']],
   ['Basophil', ['basophil', 'baso', '嗜鹼性白血球']],
-  ['Glucose', ['glucose', 'sugar', 'ac sugar', 'blood sugar', '葡萄糖', '血糖', '飯前血糖', '空腹血糖', '飯前血糖(ac)', 'glucose ac', 'glucose (ac)', 'glucose(ac)', 'glu.(ac)', 'glu (ac)', 'glu(ac)', 'glu ac', 'ac glucose']],
-  ['Glucose PC', ['glucose pc', 'glucose (pc)', 'glucose(pc)', 'glu.(pc)', 'glu (pc)', 'glu(pc)', 'glu pc', 'pc sugar', 'pc glucose', 'glucose post cibum', 'glucose-pc', 'glucose-post cibum', '飯後血糖', '餐後血糖', 'glucose-post cibum, pc']],
-  ['HbA1c', ['hba1c', 'hb a1c', 'a1c', 'hemoglobin a1c', '糖化血色素', '糖化血紅素']],
+  ['Glucose', ['glucose', 'sugar', 'ac sugar', 'blood sugar', '葡萄糖', '血糖', '飯前血糖', '空腹血糖', '飯前血糖(ac)', '飯前葡萄糖', '飯前葡萄糖(ac)', 'glucose ac', 'glucose (ac)', 'glucose(ac)', 'glu.(ac)', 'glu (ac)', 'glu(ac)', 'glu ac', 'ac glucose']],
+  ['Glucose PC', ['glucose pc', 'glucose (pc)', 'glucose(pc)', 'glu.(pc)', 'glu (pc)', 'glu(pc)', 'glu pc', 'pc sugar', 'pc glucose', 'glucose post cibum', 'glucose-pc', 'glucose-post cibum', '飯後血糖', '餐後血糖', '飯後葡萄糖', '飯後葡萄糖(pc)', 'glucose-post cibum, pc']],
+  ['HbA1c', ['hba1c', 'hb-a1c', 'hb a1c', 'a1c', 'hemoglobin a1c', '糖化血色素', '糖化血紅素', '醣化血色素', '醣化血紅素']],
   ['Microalbumin', ['microalbumin', 'micro albumin', 'micro-albumin', '微量白蛋白', '尿微量白蛋白', 'urine microalbumin']],
   ['Urine creatinine', ['urine creatinine', 'urine cr', 'u-cr', 'u cr', '尿肌酸酐', '尿肌酐', '肌酸酐,尿', '肌酐,尿', '肌酐、尿']],
   ['Amylase', ['amylase', 'amylase(b)', '血液澱粉脢', '澱粉酶', '澱粉脢']],
@@ -246,8 +246,10 @@ const LAB_ALIAS = [
   ['Na', ['na', 'sodium', '鈉']],
   ['K', ['k', 'potassium', '鉀']],
   ['Cl', ['cl', 'chloride', '氯']],
-  ['GOT', ['got', 'ast', 'sgot', 's.g.o.t', 's.g.o.t (ast)', 's.g.o.t. (ast)', 's-got', 's-got/ast', '天門冬胺酸轉胺酶', '天門冬胺酸胺基轉移酶', '血清麩胺酸苯醋酸轉氨基', '血清麩胺酸苯醋酸轉氨基酶', '麩胺酸苯醋酸轉氨基', '麩胺酸苯醋酸轉氨基酶']],
-  ['GPT', ['gpt', 'alt', 'sgpt', 's.g.p.t', 's.g.p.t (alt)', 's.g.p.t. (alt)', 's-gpt', 's-gpt/alt', '丙胺酸轉胺酶', '丙胺酸胺基轉移酶', '血清麩胺酸丙酮酸轉氨基', '血清麩胺酸丙酮酸轉氨基酶', '麩胺酸丙酮酸轉氨基', '麩胺酸丙酮酸轉氨基酶']],
+  ['GOT', ['got', 'ast', 'sgot', 's.g.o.t', 's.g.o.t (ast)', 's.g.o.t. (ast)', 's-got', 's-got/ast', 'ast/got', 'got/ast', 'ast (got)', 'got (ast)', '天門冬胺酸轉胺酶', '天門冬胺酸胺基轉移酶', '血清麩胺酸苯醋酸轉氨基', '血清麩胺酸苯醋酸轉氨基酶', '麩胺酸苯醋酸轉氨基', '麩胺酸苯醋酸轉氨基酶']],
+  ['GPT', ['gpt', 'alt', 'sgpt', 's.g.p.t', 's.g.p.t (alt)', 's.g.p.t. (alt)', 's-gpt', 's-gpt/alt', 'alt/gpt', 'gpt/alt', 'alt (gpt)', 'gpt (alt)', '丙胺酸轉胺酶', '丙胺酸胺基轉移酶', '血清麩胺酸丙酮酸轉氨基', '血清麩胺酸丙酮酸轉氨基酶', '麩胺酸丙酮酸轉氨基', '麩胺酸丙酮酸轉氨基酶']],
+  ['U.A', ['u.a', 'ua', 'uric acid', 'uric acid(blood)', '尿酸', '血清尿酸', '血液尿酸']],
+  ['GFR', ['gfr', 'egfr', 'e-gfr', 'estimated gfr', 'estimated-gfr', 'egfr-ckd-epi', 'egfr ckd-epi', 'egfr (ckd-epi)', 'egfr-mdrd', 'egfr (mdrd)', '腎絲球過濾率', '腎絲球過濾率(新)', '腎絲球過濾率;(egfr-ckd-epi)', '腎絲球過濾率(新);(egfr-ckd-epi)', '腎絲球過濾率(egfr)']],
   // Thyroid — long Chinese names dominate the leftmost sticky column,
   // squeezing the data columns. Map each to the standard short form a
   // clinician actually uses at a glance.
@@ -263,7 +265,7 @@ const LAB_ALIAS = [
   // these aliases the report shows duplicate rows ('Chol' vs 'Cholesterol'
   // vs '膽固醇', 'LDL' vs 'LDL-cholesterol' vs 'LDL-cholesterol (低密度脂蛋白
   // 膽固醇)', 'HDL' vs 'HDL-cholesterol' vs '高密度脂蛋白膽固醇'…).
-  ['Chol', ['chol', 'cholesterol', 'total cholesterol', 'cho', 't-cho', 't-chol', '膽固醇', '總膽固醇', 'cholesterol(膽固醇)']],
+  ['Chol', ['chol', 'cholesterol', 'total cholesterol', 't-cholesterol', 'total-cholesterol', 'tc', 'cho', 't-cho', 't-chol', '膽固醇', '總膽固醇', 'cholesterol(膽固醇)']],
   ['TG', ['tg', 'tg, triglycerides', 'triglyceride', 'triglycerides', 't.g.', '三酸甘油脂', '三酸甘油酯', 'tg (三酸甘油脂)']],
   ['HDL', ['hdl', 'hdl-cholesterol', 'hdl cholesterol', 'hdl-c', 'hdl chol', 'hdl-cholesterol (高密度脂蛋白膽固醇)', '高密度脂蛋白膽固醇', '高密度脂蛋白', 'hdl(高密度脂蛋白)']],
   ['LDL', ['ldl', 'ldl-cholesterol', 'ldl cholesterol', 'ldl-c', 'ldl chol', 'ldl-cholesterol (低密度脂蛋白膽固醇)', '低密度脂蛋白膽固醇', '低密度脂蛋白', 'ldl(低密度脂蛋白)']],
@@ -433,7 +435,10 @@ function canonicalLabName(l) {
   const norm = normalizeLabName(rawName);
   let canon = LAB_ALIAS_LOOKUP.get(norm);
   if (!canon) {
-    const noParen = norm.replace(/\(.*?\)/g, '').trim();
+    // Strip parens AND any trailing/leading separator detritus (空格, 半形/全形
+    // 分號逗號頓號冒號) so e.g. '腎絲球過濾率(新) ;(eGFR-CKD-EPI)' → after
+    // paren-strip → '腎絲球過濾率 ;' → matches the alias '腎絲球過濾率'.
+    const noParen = norm.replace(/\(.*?\)/g, '').replace(/^[\s;,，、:：]+|[\s;,，、:：]+$/g, '').trim();
     if (noParen) canon = LAB_ALIAS_LOOKUP.get(noParen);
   }
   // Fallback: 衛生所 / 區域醫院 sometimes ship the raw NHI order code as
@@ -483,7 +488,7 @@ const DEFAULT_UNITS = {
   MCV:'fL', MCH:'pg', MCHC:'g/dL', RDW:'%', MPV:'fL',
   Neutrophil:'%', Lymphocyte:'%', Monocyte:'%', Eosinophil:'%', Basophil:'%',
   // Biochem
-  BUN:'mg/dL', Cr:'mg/dL', 'U.A':'mg/dL', Glucose:'mg/dL', 'Glucose PC':'mg/dL', HbA1c:'%', 'γ-GT':'U/L', CPK:'U/L', Microalbumin:'mg/L', 'Urine creatinine':'mg/dL',
+  BUN:'mg/dL', Cr:'mg/dL', 'U.A':'mg/dL', Glucose:'mg/dL', 'Glucose PC':'mg/dL', HbA1c:'%', 'γ-GT':'U/L', CPK:'U/L', Microalbumin:'mg/L', 'Urine creatinine':'mg/dL', GFR:'mL/min/1.73m²',
   // Thyroid
   TSH:'μIU/mL', 'Free T4':'ng/dL', 'Free T3':'pg/mL', T3:'ng/mL', T4:'μg/dL', 'Anti-TPO':'IU/mL', ATA:'IU/mL',
   Alb:'g/dL', 'T-Bil':'mg/dL', 'D-Bil':'mg/dL',
