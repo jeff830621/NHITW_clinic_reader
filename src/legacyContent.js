@@ -2027,6 +2027,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (nameMatch) { name = nameMatch[1].trim(); dbg.domNameMatched = true; }
       }
     } catch (_) { /* ignore */ }
+    // Also reveal which masterMenu auth nodes the patient/clinic combo has —
+    // when acupuncture/chinesemed comes back empty in the report (e.g. 張寶玉
+    // 2026/06/26: dataAtExport.acupunctureData=0 despite the patient having
+    // 13 pure-acupuncture visits at our clinic), this tells us whether the
+    // fetch was skipped due to missing node-3.2 auth vs. an actually empty
+    // NHI response.
+    try {
+      const mm = window.lastInterceptedMasterMenuData;
+      const menuData = mm?.rObject?.[0] || mm;
+      dbg.masterMenuAuth = Array.isArray(menuData?.prsnAuth) ? [...menuData.prsnAuth].sort() : null;
+      dbg.masterMenuPresent = !!mm;
+    } catch (_) { dbg.masterMenuAuth = null; }
+    // Status of each data type's current payload — informs whether ACU was
+    // never fetched, fetched-but-empty, or genuinely populated.
+    try {
+      const pp = (raw) => raw == null ? 'null' : (Array.isArray(raw.rObject) ? `rows=${raw.rObject.length}` : 'present');
+      dbg.dataState = {
+        chinesemed: pp(window.lastInterceptedChineseMedData),
+        acupuncture: pp(window.lastInterceptedAcupunctureData),
+        medication: pp(window.lastInterceptedMedicationData),
+        labdata: pp(window.lastInterceptedLabData),
+      };
+    } catch (_) {}
     console.log('[NHITW Clinic] getPatientInfo →', { name: maskPii(name, 1, 1), id: maskPii(id, 4, 3), age, sex });
     sendResponse({ name, id, age, sex, birthday, _debug: dbg });
     return true;

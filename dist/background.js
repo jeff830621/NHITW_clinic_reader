@@ -5,9 +5,9 @@ ${JSON.stringify(n,null,2).replace(/--+/g,o=>o.split("").join("\u200B"))}
 NHITW-DEBUG-END -->
 `}catch(a){return`
 <!-- NHITW-DEBUG error: ${String(a&&a.message||a).replace(/--+/g,"-")} -->
-`}}function Ue(e){if(!e)return"";try{let a=e.rObject||e.robject||e,t=Array.isArray(a)?a.length:0,n=new Set;if(Array.isArray(a)){for(let s of a.slice(0,200))if(s&&typeof s=="object")for(let r of Object.keys(s))n.add(r)}let i={generated:new Date().toISOString(),endpoint:"imue0100s02 (\u4E2D\u91AB\u8655\u7F6E / \u91DD\u7078\u6CBB\u7642)",shape:Array.isArray(a)?"array":typeof a,recordCount:t,allFieldKeys:[...n].sort(),firstFiveRecords:Array.isArray(a)?a.slice(0,5):null,rawIfNonArray:Array.isArray(a)?void 0:e};return`
+`}}function Ue(e){try{let a="no_data_received",t=null;e!=null&&(t=e.rObject||e.robject||(Array.isArray(e)?e:null),a=Array.isArray(t)?t.length===0?"fetched_but_empty":"has_records":"unknown_shape");let n=Array.isArray(t)?t.length:0,i=new Set;if(Array.isArray(t)){for(let r of t.slice(0,200))if(r&&typeof r=="object")for(let c of Object.keys(r))i.add(c)}let o={generated:new Date().toISOString(),endpoint:"imue0100s02 (\u4E2D\u91AB\u8655\u7F6E / \u91DD\u7078\u6CBB\u7642)",state:a,shape:Array.isArray(t)?"array":typeof t,recordCount:n,allFieldKeys:[...i].sort(),firstFiveRecords:Array.isArray(t)?t.slice(0,5):null,rawIfNonArray:t==null&&e!=null?e:void 0};return`
 <!-- NHITW-ACU-PROBE-START
-${JSON.stringify(i,null,2).replace(/--+/g,s=>s.split("").join("\u200B"))}
+${JSON.stringify(o,null,2).replace(/--+/g,r=>r.split("").join("\u200B"))}
 NHITW-ACU-PROBE-END -->
 `}catch(a){return`
 <!-- NHITW-ACU-PROBE error: ${String(a&&a.message||a).replace(/--+/g,"-")} -->

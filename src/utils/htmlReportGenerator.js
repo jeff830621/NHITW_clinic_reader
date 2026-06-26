@@ -748,9 +748,18 @@ function buildLabDebugComment(items) {
 // into the diagnosis panel. Zero visual impact; same -- neutralisation as
 // the lab debug above.
 function buildAcupunctureProbeComment(rawData) {
-  if (!rawData) return '';
+  // ALWAYS emit something — distinguishing 'never fetched' (rawData null)
+  // from 'fetched but empty' (rObject=[]) from 'has records' is exactly what
+  // we need to diagnose ‘為什麼針灸沒抓到’ cases like 張寶玉 2026-06-26.
   try {
-    const items = rawData.rObject || rawData.robject || rawData;
+    let state = 'no_data_received';     // saveAcupunctureData never fired
+    let items = null;
+    if (rawData != null) {
+      items = rawData.rObject || rawData.robject || (Array.isArray(rawData) ? rawData : null);
+      state = Array.isArray(items)
+        ? (items.length === 0 ? 'fetched_but_empty' : 'has_records')
+        : 'unknown_shape';
+    }
     const sampleCount = Array.isArray(items) ? items.length : 0;
     const keySet = new Set();
     if (Array.isArray(items)) {
@@ -761,11 +770,12 @@ function buildAcupunctureProbeComment(rawData) {
     const payload = {
       generated: new Date().toISOString(),
       endpoint: 'imue0100s02 (中醫處置 / 針灸治療)',
+      state,
       shape: Array.isArray(items) ? 'array' : typeof items,
       recordCount: sampleCount,
       allFieldKeys: [...keySet].sort(),
       firstFiveRecords: Array.isArray(items) ? items.slice(0, 5) : null,
-      rawIfNonArray: !Array.isArray(items) ? rawData : undefined,
+      rawIfNonArray: items == null && rawData != null ? rawData : undefined,
     };
     const json = JSON.stringify(payload, null, 2).replace(/--+/g, m => m.split('').join('​'));
     return `\n<!-- NHITW-ACU-PROBE-START\n${json}\nNHITW-ACU-PROBE-END -->\n`;
