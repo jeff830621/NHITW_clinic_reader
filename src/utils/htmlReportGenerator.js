@@ -236,6 +236,10 @@ const LAB_ALIAS = [
   ['HbA1c', ['hba1c', 'hb-a1c', 'hb a1c', 'a1c', 'hemoglobin a1c', '糖化血色素', '糖化血紅素', '醣化血色素', '醣化血紅素']],
   ['Microalbumin', ['microalbumin', 'micro albumin', 'micro-albumin', '微量白蛋白', '尿微量白蛋白', 'urine microalbumin']],
   ['Urine creatinine', ['urine creatinine', 'urine cr', 'u-cr', 'u cr', '尿肌酸酐', '尿肌酐', '肌酸酐,尿', '肌酐,尿', '肌酐、尿']],
+  // Ratios — kept un-suffixed by canonicalLabName so the CKD proteinuria
+  // check matches them exactly.
+  ['UPCR', ['upcr', 'u-pcr', 'upc', 'urine protein/creatinine ratio', 'urine protein creatinine ratio', 'protein/creatinine ratio', '尿蛋白/肌酸酐比值', '尿蛋白肌酸酐比值', '尿蛋白/肌酐比值', '蛋白/肌酸酐比值', '尿液蛋白質/肌酸酐比值']],
+  ['UACR', ['uacr', 'u-acr', 'acr', 'albumin/creatinine ratio', 'urine albumin/creatinine ratio', '尿液微白蛋白/肌酸酐比值', '微白蛋白/肌酸酐比值', '白蛋白/肌酸酐比值', '尿白蛋白/肌酐比值', '尿液白蛋白/肌酸酐比值', '微量白蛋白/肌酸酐比值']],
   ['Amylase', ['amylase', 'amylase(b)', '血液澱粉脢', '澱粉酶', '澱粉脢']],
   ['Lipase', ['lipase', '解脂脢', '脂肪酶', '脂解酶']],
   ['ALK-P', ['alk-p', 'alkp', 'alp', '鹼性磷酸脢', '鹼性磷酸酶', '鹼性磷酸酵素']],
@@ -477,6 +481,10 @@ function canonicalLabName(l) {
   }
 
   const baseName = canon || (rawName || orderCode || '?').trim();
+  // UPCR/UACR are ratios — inherently urine, never collide with a blood
+  // version. Suffixing them '(尿)' broke the CKD proteinuria check, which
+  // matches the exact canonical 'UPCR'/'UACR'. Return them bare.
+  if (baseName === 'UPCR' || baseName === 'UACR') return baseName;
   return specimen === 'urine' ? appendUrineMark(baseName) : baseName;
 }
 
@@ -1278,7 +1286,9 @@ function findAbnormalProteinuria(labData) {
   // Then: pre-computed UPCR/UACR rows that came through the canonical pipeline
   const latestByName = {};
   for (const l of labData.rObject) {
-    const n = canonicalLabName(l);
+    // Defensive: strip a trailing (尿) suffix in case any path re-introduces
+    // it — the exact-match below must still recognise the ratio.
+    const n = canonicalLabName(l).replace(/[(（]\s*尿\s*[)）]\s*$/, '');
     if (n !== 'UPCR' && n !== 'UACR') continue;
     const d = parseDate(l.real_inspect_date || l.recipe_date || '');
     if (!d) continue;
@@ -1291,37 +1301,63 @@ function findAbnormalProteinuria(labData) {
   }
   return null;
 }
+// Lab-reported eGFR: trust a plain number; ignore fuzzy '>60 (100 僅供參考)'
+// text — that carries little information, so a CKD-EPI computation from
+// serum Cr is sharper in that case.
+function parseLabGfr(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (s === '') return null;
+  if (/[<>＜＞≧≦≥≤]/.test(s)) return null;
+  const m = s.match(/-?\d+\.?\d*/);
+  if (!m) return null;
+  const n = parseFloat(m[0]);
+  return isNaN(n) ? null : n;
+}
 function buildCkdBadge(data, patientMeta = {}) {
   const cr = getLatestLabValue(data?.labData, 'Cr');
-  if (!cr) return '';
-  const scr = parseFloat(cr.value);
-  if (!(scr > 0)) return '';
-  if (scr > 15) {
-    console.warn('[NHITW Clinic] CKD badge: ignoring Cr=' + scr + ' (not plausible as serum)');
-    return '';
-  }
+  const labGfrRec = getLatestLabValue(data?.labData, 'GFR');
+  const labGfr = labGfrRec ? parseLabGfr(labGfrRec.value) : null;
+
   const age = patientMeta?.age;
-  if (typeof age !== 'number' || age <= 0 || !patientMeta?.sex) return '';
-  const isFemale = isFemaleSex(patientMeta.sex);
-  const egfr = computeEgfr(scr, age, isFemale);
-  console.log('[NHITW Clinic] CKD check: Cr=' + scr + ' (' + cr.date + ') age=' + age + ' female=' + isFemale + ' → eGFR=' + (egfr != null ? egfr.toFixed(1) : 'null'));
+  const hasAgeSex = (typeof age === 'number' && age > 0 && !!patientMeta?.sex);
+  const isFemale = patientMeta?.sex ? isFemaleSex(patientMeta.sex) : false;
+
+  // Decide the eGFR used for staging. The lab-reported eGFR is what NHI /
+  // the lab officially filed, so it takes priority; we fall back to a
+  // CKD-EPI computation from serum Cr only when there's no usable lab eGFR.
+  let egfr = null, basis = '', basisDate = '';
+  if (labGfr != null && labGfr > 0) {
+    egfr = labGfr;
+    basis = `Lab eGFR ${labGfr} mL/min/1.73m²（檢驗報告認列）`;
+    basisDate = labGfrRec.date;
+  } else if (cr) {
+    const scr = parseFloat(cr.value);
+    if (scr > 15) {
+      console.warn('[NHITW Clinic] CKD badge: ignoring Cr=' + scr + ' (not plausible as serum)');
+    } else if (scr > 0 && hasAgeSex) {
+      egfr = computeEgfr(scr, age, isFemale);
+      basis = `Cr=${scr} mg/dL（CKD-EPI 計算）`;
+      basisDate = cr.date;
+    }
+  }
+  console.log('[NHITW Clinic] CKD check: labGFR=' + labGfr + ' Cr=' + (cr?.value ?? 'none') + ' → eGFR=' + (egfr != null ? egfr.toFixed(1) : 'null') + ' (' + (basis || 'no basis') + ')');
   if (egfr == null) return '';
   const stage = ckdStage(egfr);
   if (stage === '正常') return '';
 
   // <60 (G3a/b/4/5) — eligible regardless of proteinuria
   if (egfr < 60) {
-    const tip = `eGFR ${egfr.toFixed(1)} mL/min/1.73m² (${stage})，符合中醫慢性腎臟病門診加強照護計畫\n依據：Cr=${scr} mg/dL @ ${cr.date}\n需主診斷 ICD-10 N18.2-N18.6`;
+    const tip = `eGFR ${egfr.toFixed(1)} mL/min/1.73m² (${stage})，符合中醫慢性腎臟病門診加強照護計畫\n依據：${basis} @ ${basisDate}\n需主診斷 ICD-10 N18.2-N18.6`;
     return `<span class="ckd-badge ckd-eligible" title="${esc(tip)}">🫘 CKD 收案 (${stage})</span>`;
   }
 
   // G2 (60-89.9) — needs proteinuria/hematuria
   const prot = findAbnormalProteinuria(data?.labData);
   if (prot) {
-    const tip = `eGFR ${egfr.toFixed(1)} (${stage}) + ${prot.name}=${prot.value} 超標 (參考 ${prot.ref || '無'}) @ ${prot.date}\n符合 stage 2 收案條件 — 需主診斷 ICD-10 N18.2-N18.6`;
+    const tip = `eGFR ${egfr.toFixed(1)} (${stage}) + ${prot.name}=${prot.value} 超標 (參考 ${prot.ref || '無'}) @ ${prot.date}\n符合 stage 2 收案條件 — 需主診斷 ICD-10 N18.2-N18.6\n依據：${basis}`;
     return `<span class="ckd-badge ckd-eligible" title="${esc(tip)}">🫘 CKD 收案 (stage 2 + 蛋白尿)</span>`;
   }
-  const tip = `eGFR ${egfr.toFixed(1)} (${stage})；stage 2 收案需 UPCR≥150 mg/g、UACR≥30 mg/g（糖尿病）或血尿，請臨床判斷\n依據：Cr=${scr} mg/dL @ ${cr.date}`;
+  const tip = `eGFR ${egfr.toFixed(1)} (${stage})；stage 2 收案需 UPCR≥150 mg/g、UACR≥30 mg/g（糖尿病）或血尿，請臨床判斷\n依據：${basis} @ ${basisDate}`;
   return `<span class="ckd-badge ckd-watch" title="${esc(tip)}">🫘 CKD 待確認 (stage 2)</span>`;
 }
 
