@@ -286,12 +286,12 @@ const API_ENDPOINTS = {
   medDays: "medcloud2.nhi.gov.tw/imu/api/imue0120/imue0120s01/pres-med-day",
   patientSummary: "medcloud2.nhi.gov.tw/imu/api/imue2000/imue2000s01/get-summary",  // New endpoint
   chinesemed: "medcloud2.nhi.gov.tw/imu/api/imue0090/imue0090s02/get-data",
-  // imue0100 = 中醫處置 / 針灸治療. Captures visits where the doctor only
-  // did acupuncture and prescribed no Chinese herbs — those rows are
-  // missing from imue0090 (中醫用藥) entirely. Endpoint exact path inferred
-  // from original upstream commented-out scaffolding; if NHI returns 404
-  // the listener just stays silent (no side effects).
-  acupuncture: "medcloud2.nhi.gov.tw/imu/api/imue0100/imue0100s02/get-data",
+  // imue0160 = 中醫處置 / 針灸治療 (log_type CHINMED). Confirmed via live
+  // Network trace 2026-06-26: GET ?cli_datetime=…&insert_log=true, returns
+  // { robject:[{func_date,hosp,icd_code,icd_cname,order_code(D01/D02),
+  // cure_cname,diagtreat}] }. Captures pure-acupuncture visits (D02 未開
+  // 內服藥) whose diagnoses never appear in imue0090 (中醫用藥).
+  acupuncture: "medcloud2.nhi.gov.tw/imu/api/imue0160/imue0160s02/get-data",
   imaging: "medcloud2.nhi.gov.tw/imu/api/imue0130/imue0130s02/get-data",
   medication: "medcloud2.nhi.gov.tw/imu/api/imue0008/imue0008s02/get-data",
   labdata: "medcloud2.nhi.gov.tw/imu/api/imue0060/imue0060s02/get-data"

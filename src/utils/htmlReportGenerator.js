@@ -184,6 +184,11 @@ function buildDiagnosisPanel(data, highlightSets = {}) {
     processItems(allMeds, 'drug_date', 'hosp', 'icd_code', 'icd_cname');
   }
   processItems(data.chinesemedData?.rObject, 'func_date', 'hosp', 'icd_code', 'icd_cname');
+  // Acupuncture (imue0160): each row is one 針灸 visit carrying its own ICD —
+  // this is the ONLY place a pure-acupuncture (D02 未開內服藥) diagnosis
+  // appears, since those visits write no row to imue0090 (中醫用藥). Without
+  // this the diagnosis panel silently dropped them (the original complaint).
+  processItems(data.acupunctureData?.rObject || data.acupunctureData?.robject, 'func_date', 'hosp', 'icd_code', 'icd_cname');
 
   for (const e of Object.values(diagMap)) e.count = e.visits.size;
 

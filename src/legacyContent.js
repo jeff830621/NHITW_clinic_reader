@@ -556,7 +556,7 @@ const DataProcessor = {
     ["adultHealthCheck", "/imu/api/imue0140/imue0140s01/hpa-data"],
     ["cancerScreening", "/imu/api/imue0150/imue0150s01/hpa-data"],
     ["hbcvdata", "/imu/api/imue0180/imue0180s01/hbcv-data"],
-    ["acupuncture", "/imu/api/imue0100/imue0100s02/get-data"],
+    ["acupuncture", "/imu/api/imue0160/imue0160s02/get-data"],
     // ["rehabilitation", "/imu/api/imue0080/imue0080s02/get-data"],
     // ["specialChineseMedCare", "/imu/api/imue0170/imue0170s02/get-data"]
   ]),
@@ -1611,8 +1611,8 @@ const apiPathMap = new Map([
   ["adultHealthCheck", "imue0140/imue0140s01/hpa-data"],
   ["cancerScreening", "imue0150/imue0150s01/hpa-data"],
   ["hbcvdata", "imue0180/imue0180s01/hbcv-data"],
+  ["acupuncture", "imue0160/imue0160s02/get-data"], // 中醫處置/針灸治療 (CHINMED)
   // ["rehabilitation", "imue0080/imue0080s02/get-data"],
-  // ["acupuncture", "imue0160/imue0160s02/get-data"],
   // ["specialChineseMedCare", "imue0170/imue0170s02/get-data"]
 ]);
 
@@ -1639,8 +1639,8 @@ function enhancedFetchData(dataType, options = {}) {
     "adultHealthCheck",
     "cancerScreening",
     "hbcvdata",
+    "acupuncture",
     // "rehabilitation",
-    // "acupuncture",
     // "specialChineseMedCare",
   ];
 
@@ -1833,6 +1833,7 @@ const nodeToDataTypeMap = [
   ["2.1", "medication"],
   ["2.4", "medDays"],
   ["3.1", "chinesemed"],
+  ["3.1", "acupuncture"], // 中醫大類:有中藥(3.1)授權就能看針灸治療紀錄,避免 3.2 未列時被擋
   ["3.2", "acupuncture"],
   // ["3.3", "specialChineseMedCare"],
   ["5.1", "allergy"],
