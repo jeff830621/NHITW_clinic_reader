@@ -206,8 +206,12 @@ function buildDiagnosisPanel(data, highlightSets = {}) {
     else if (d.lastType.includes('住')) typeTag = '<span class="diag-type inpatient">住</span>';
     const dateStr = d.lastDate ? d.lastDate.replace(/-/g, '/') : '';
     const meta = [dateStr, d.lastHosp].filter(Boolean).join(' ');
+    // Some hospitals leave icd_cname blank (or fill it with the code itself),
+    // which rendered an ugly 'F329 F329'. Drop the name when it's empty or
+    // just repeats the code.
+    const nameStr = (d.name && d.name.trim() && d.name.trim() !== String(d.code).trim()) ? esc(d.name) : '';
     html += `<div class="diag-item ${matchClass(d.code)}">`
-      + `<div class="diag-line1">${typeTag}<span class="diag-code">${esc(d.code)}</span> ${esc(d.name)}`
+      + `<div class="diag-line1">${typeTag}<span class="diag-code">${esc(d.code)}</span> ${nameStr}`
       + `<span class="diag-count">${d.count}次</span></div>`
       + `<div class="diag-line2">${esc(meta)}</div>`
       + `</div>`;
@@ -777,7 +781,7 @@ function buildAcupunctureProbeComment(rawData) {
     }
     const payload = {
       generated: new Date().toISOString(),
-      endpoint: 'imue0100s02 (中醫處置 / 針灸治療)',
+      endpoint: 'imue0160s02 (中醫處置 / 針灸治療)',
       state,
       shape: Array.isArray(items) ? 'array' : typeof items,
       recordCount: sampleCount,
