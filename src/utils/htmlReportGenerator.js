@@ -545,6 +545,9 @@ const FOCUSED_LAB_TESTS = [
 function buildLabPivotPanel(items, patientMeta = {}) {
   if (!items || items.length === 0) return '<p class="empty">無檢驗資料</p>';
   const LAB_TRACKING_DAYS = 180;
+  // Resolve patient sex once for sex-specific reference ranges (M:.. F:..).
+  // null when unknown → those rows fall back to the generic parser.
+  const sexHint = patientMeta?.sex ? isFemaleSex(patientMeta.sex) : null;
 
   // Debug payload is embedded as an HTML comment at the end of this panel
   // (see buildLabDebugComment). It rides along inside the generated file so
@@ -578,7 +581,7 @@ function buildLabPivotPanel(items, patientMeta = {}) {
     // Capture the first non-empty unit + reference display we encounter
     if (!itemMap[name].unit && unit) itemMap[name].unit = unit;
     if (!itemMap[name].code && code) itemMap[name].code = code;
-    const newCell = { value, dir: labDirection(value, ref, code), ref: refDisplay(ref, code) };
+    const newCell = { value, dir: labDirection(value, ref, code, sexHint), ref: refDisplay(ref, code, sexHint) };
     const existing = itemMap[name].dates[date];
     if (!existing) {
       itemMap[name].dates[date] = newCell;
@@ -906,8 +909,29 @@ function ckdStageStyle(stage) {
 }
 
 // Friendly reference range text for the cell tooltip (e.g. "12-16", "<140", ">40")
-function refDisplay(refStr, orderCode) {
-  const range = labRefRange(refStr, orderCode);
+// Sex-specific reference ranges, e.g. "[(M:0.7-1.2 F:0.5-0.9)][]" /
+// "[男:0.5~0.9 女:...]". Engages ONLY when both an M and F sub-range are
+// present AND we know the patient's sex; otherwise returns null so the
+// generic parser runs (which would otherwise grab the male range by
+// position, mis-flagging female Cr/UA/Hb). isFemale: true/false to choose,
+// null/undefined to skip.
+function parseSexSpecificRange(reference, isFemale) {
+  if (isFemale == null) return null;
+  const s = String(reference || '');
+  const grab = (re) => {
+    const m = s.match(re);
+    if (!m) return null;
+    const lo = parseFloat(m[1]), hi = parseFloat(m[2]);
+    return (isNaN(lo) || isNaN(hi)) ? null : { min: lo, max: hi };
+  };
+  const male = grab(/[M男][:：\s]*(-?\d*\.?\d+)\s*[-~～]\s*(-?\d*\.?\d+)/);
+  const female = grab(/[F女][:：\s]*(-?\d*\.?\d+)\s*[-~～]\s*(-?\d*\.?\d+)/);
+  if (!male || !female) return null;
+  return isFemale ? female : male;
+}
+
+function refDisplay(refStr, orderCode, isFemale) {
+  const range = labRefRange(refStr, orderCode, isFemale);
   if (!range) return '';
   if (range.min != null && range.max != null) return `${range.min}-${range.max}`;
   if (range.max != null) return `<${range.max}`;
@@ -923,7 +947,10 @@ function checkAbnormal(value, reference, orderCode) {
 // bracket form "[70-100]" / "[0.4-1.1]" / "[-2-3]" (which the extension's
 // parseReferenceRange misses — it only knows "[70][100]" and "[7~25]"), then
 // falls back to the robust parser for [min][max], <X, ≧X, etc.
-function labRefRange(reference, orderCode) {
+function labRefRange(reference, orderCode, isFemale) {
+  // Sex-specific ranges first — only fires when both M+F present and sex known.
+  const sexed = parseSexSpecificRange(reference, isFemale);
+  if (sexed) return sexed;
   const s = String(reference || '');
   // Allow non-`]` content after the upper bound (most often a unit suffix
   // like '15-37 U/L'). Without this the regex fails, falls through to
@@ -941,11 +968,11 @@ function labRefRange(reference, orderCode) {
 }
 
 // 'high' = above reference max, 'low' = below reference min, null = normal/unknown.
-function labDirection(value, reference, orderCode) {
+function labDirection(value, reference, orderCode, isFemale) {
   if (value == null || value === '' || value === '***') return null;
   const num = parseFloat(value);
   if (isNaN(num)) return null;
-  const range = labRefRange(reference, orderCode);
+  const range = labRefRange(reference, orderCode, isFemale);
   if (!range) return null;
   if (range.max != null && num > range.max) return 'high';
   if (range.min != null && num < range.min) return 'low';
