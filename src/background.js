@@ -66,6 +66,11 @@ function getClinicSession(date) {
  * Uses chrome.alarms instead of setTimeout because MV3 Service Workers
  * can be killed before setTimeout fires.
  */
+// Fingerprint of the last report actually written (patientId + data counts),
+// so an identical re-fire doesn't produce a duplicate file. In-memory only —
+// a SW restart resets it, at worst re-writing one identical report.
+let _lastExportFingerprint = null;
+
 function scheduleExport() {
   // Debounce by RESET: every new data arrival (or saveToken) pushes the
   // alarm back ~6s, so we only export once the data has stopped streaming
@@ -147,14 +152,30 @@ async function autoExportToSharedFolder() {
     let patientId = currentSessionData.patientIdFromToken;
     let patientName = currentSessionData.patientName;
 
+    // SAFETY — identity/session consistency. The medical payloads are fetched
+    // against currentUserSession (the patient currently loaded). If the cached
+    // identity (name/id) belongs to a DIFFERENT patient than the session, a
+    // patient switch left stale identity behind and exporting now would stamp
+    // one patient's records with another's name (陳淑媚 2026-06-29: patient
+    // F127375002's 眼科 data was about to be exported under 陳淑媚 R220136259).
+    // Defer the export — the new patient's saveToken will sync identity to the
+    // session shortly, then the next alarm exports correctly.
+    const userSession = currentSessionData.currentUserSession || '';
+    if (userSession.startsWith('patient_')) {
+      const sessionId = userSession.replace('patient_', '');
+      if (sessionId && patientId && sessionId !== patientId) {
+        console.warn(`[NHITW Clinic] identity/session mismatch (id=${maskPii(patientId, 4, 3)} vs session=${maskPii(sessionId, 4, 3)}) — deferring export until they sync`);
+        return;
+      }
+    }
+
     // Fallback ID: extract from currentUserSession (format: "patient_A123456789")
     if (!patientId) {
-      const session = currentSessionData.currentUserSession;
-      if (!session) {
+      if (!userSession) {
         console.log('[NHITW Clinic] No session data, skipping export');
         return;
       }
-      patientId = session.startsWith('patient_') ? session.replace('patient_', '') : session;
+      patientId = userSession.startsWith('patient_') ? userSession.replace('patient_', '') : userSession;
     }
 
     // Fallback name
@@ -222,6 +243,23 @@ async function autoExportToSharedFolder() {
       return;
     }
 
+    // Content dedup: same patient + identical data payload counts shouldn't
+    // produce a second file. NHI re-fires its APIs while the doctor lingers on
+    // a patient (范珈寧 2026-06-29: identical 29/311/0 data exported twice,
+    // 3.5 min apart — too far apart for the debounce window). Fingerprint =
+    // patientId + per-type row counts; skip if unchanged since last write.
+    const fingerprint = patientId + '#' + Object.entries(exportData)
+      .filter(([k]) => !IDENTITY_KEYS.has(k))
+      .map(([k, v]) => {
+        const arr = v?.rObject || v?.robject;
+        return `${k}:${Array.isArray(arr) ? arr.length : (v ? 1 : 0)}`;
+      })
+      .sort().join('|');
+    if (fingerprint === _lastExportFingerprint) {
+      console.log('[NHITW Clinic] Export skipped — identical to last export (' + maskPii(patientId, 4, 3) + ')');
+      return;
+    }
+
     // Generate and write HTML report only (no JSON)
     let html = generateHtmlReport(patientName, patientId, exportData, patientMeta);
     const filename = getReportFilename(patientName);
@@ -257,6 +295,7 @@ async function autoExportToSharedFolder() {
     }
 
     await writeHtml(filename, html, undefined, session);
+    _lastExportFingerprint = fingerprint;
     console.log(`[NHITW Clinic] HTML report saved: ${session}/${filename}`);
   } catch (err) {
     console.warn('[NHITW Clinic] Auto-export failed (non-blocking):', err.message);
@@ -374,6 +413,18 @@ const ACTION_HANDLERS = new Map([
   ['userSessionChanged', (message, sender, sendResponse) => {
     // console.log("User session changed, resetting temporary data");
     clearMedicalData();
+    // If the new session is a DIFFERENT patient, wipe the cached identity too.
+    // clearMedicalData() deliberately preserves IDENTITY_KEYS (so an early
+    // saveToken survives a session reset), but on a genuine patient switch
+    // that preservation is exactly what stamped the new patient's data with
+    // the previous patient's name. Clear it so the incoming patient's
+    // saveToken refills it; until then export's mismatch guard holds.
+    const newId = (message.userSession || '').startsWith('patient_')
+      ? message.userSession.replace('patient_', '') : '';
+    if (newId && currentSessionData.patientIdFromToken && newId !== currentSessionData.patientIdFromToken) {
+      currentSessionData.patientName = null;
+      currentSessionData.patientIdFromToken = null;
+    }
     currentSessionData.currentUserSession = message.userSession;
 
     // 從 storage 中移除數據
