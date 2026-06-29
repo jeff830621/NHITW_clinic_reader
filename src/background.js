@@ -66,21 +66,21 @@ function getClinicSession(date) {
  * Uses chrome.alarms instead of setTimeout because MV3 Service Workers
  * can be killed before setTimeout fires.
  */
-let _exportPending = false;
-
 function scheduleExport() {
-  if (!_exportPending) {
-    _exportPending = true;
-    // Use chrome.alarms for MV3 Service Worker reliability (min 1 second with delayInMinutes hack)
-    // Fallback: just use setTimeout but also set an alarm as backup
-    chrome.alarms.create('htmlExport', { delayInMinutes: 0.1 }); // ~6 seconds
-  }
+  // Debounce by RESET: every new data arrival (or saveToken) pushes the
+  // alarm back ~6s, so we only export once the data has stopped streaming
+  // in. The previous flag-based version locked the alarm on the FIRST
+  // trigger (usually saveToken, before any medical data arrived), fired an
+  // empty report, then the data arriving fired a SECOND export — producing
+  // two files for one patient (空檔 @ :33 + 完整檔 @ :39 for 許晴媃
+  // 2026-06-29). chrome.alarms.create with the same name overwrites the
+  // pending alarm, resetting the timer.
+  chrome.alarms.create('htmlExport', { delayInMinutes: 0.1 }); // ~6 seconds quiet period
 }
 
 // Listen for the alarm
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'htmlExport') {
-    _exportPending = false;
     autoExportToSharedFolder().catch(err => {
       console.warn('[NHITW Clinic] Export alarm handler error:', err.message);
     });
@@ -205,6 +205,21 @@ async function autoExportToSharedFolder() {
       if (key !== 'token' && key !== 'currentUserSession' && value) {
         exportData[key] = value;
       }
+    }
+
+    // Empty-report guard: if NO medical data has arrived yet (every payload
+    // empty), skip writing — the data is still streaming in and a later
+    // alarm will fire with the full set. Belt-and-braces alongside the
+    // debounce-reset above, so an over-early alarm can't emit a blank file.
+    const hasAnyData = Object.entries(exportData).some(([k, v]) => {
+      if (IDENTITY_KEYS.has(k)) return false;
+      const arr = v?.rObject || v?.robject;
+      if (Array.isArray(arr)) return arr.length > 0;
+      return !!v; // non-array payloads (summaries) count as present
+    });
+    if (!hasAnyData) {
+      console.log('[NHITW Clinic] Export skipped — no medical data yet (avoiding empty report)');
+      return;
     }
 
     // Generate and write HTML report only (no JSON)
