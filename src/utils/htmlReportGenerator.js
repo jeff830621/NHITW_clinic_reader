@@ -548,7 +548,8 @@ const FOCUSED_LAB_TESTS = [
 // high values in red / low values in green.
 function buildLabPivotPanel(items, patientMeta = {}) {
   if (!items || items.length === 0) return '<p class="empty">無檢驗資料</p>';
-  const LAB_TRACKING_DAYS = 180;
+  const LAB_TRACKING_DAYS = 365;   // fetch a full year
+  const LAB_RECENT_DAYS = 180;     // columns older than this collapse by default
   // Resolve patient sex once for sex-specific reference ranges (M:.. F:..).
   // null when unknown → those rows fall back to the generic parser.
   const sexHint = patientMeta?.sex ? isFemaleSex(patientMeta.sex) : null;
@@ -664,6 +665,11 @@ function buildLabPivotPanel(items, patientMeta = {}) {
 
   // Newest column leftmost
   const dates = [...dateSet].sort((a, b) => b.localeCompare(a));
+  // Date columns older than LAB_RECENT_DAYS collapse by default (one-year
+  // window can sprout many columns; keep the page tidy, expand on demand).
+  const archivedDates = new Set(dates.filter(d => !isWithinDays(d, LAB_RECENT_DAYS)));
+  const archivedCount = archivedDates.size;
+  const colCls = (d) => archivedDates.has(d) ? ' lab-col-archived' : '';
 
   // Focused tests first (in defined order), then others by first-seen order.
   // eGFR(計算) slots between Cr and GFR; eUPCR/eUACR follow eGFR so the
@@ -685,7 +691,7 @@ function buildLabPivotPanel(items, patientMeta = {}) {
   if (dates.length === 0 || rowNames.length === 0) return `<p class="empty">無檢驗資料</p>${debugComment}`;
 
   let thead = '<tr><th class="lab-item-col">項目</th>';
-  for (const d of dates) thead += `<th class="lab-date-col" data-short="${esc(rocShortDate(d))}" onclick="copyLabColumn(this)" title="點擊複製此次抽血數據(民國年格式)">${esc(fullDate(d))}</th>`;
+  for (const d of dates) thead += `<th class="lab-date-col${colCls(d)}" data-short="${esc(rocShortDate(d))}" onclick="copyLabColumn(this)" title="點擊複製此次抽血數據(民國年格式)">${esc(fullDate(d))}</th>`;
   thead += '</tr>';
 
   let tbody = '';
@@ -697,13 +703,14 @@ function buildLabPivotPanel(items, patientMeta = {}) {
     const copyName = name.replace(/\(計算\)/g, '').trim() || name;
     tbody += `<tr data-item="${esc(copyName)}"><td class="lab-item-name" title="點擊選取(高亮列)。點日期欄複製時，若有選取則只複製選的；${esc(item.code)}" onclick="toggleLabRow(this)">${esc(name)}${unitLabel}</td>`;
     for (const d of dates) {
+      const arch = colCls(d);
       const cell = item.dates[d];
       if (cell) {
         if (item.synthetic === 'egfr' && cell.stage) {
           // Color the cell by CKD stage instead of using lab-low (which is green)
           const style = ckdStageStyle(cell.stage);
           const tip = `${cell.stage} · CKD-EPI 2021`;
-          tbody += `<td style="${style}" title="${esc(tip)}" data-val="${esc(cell.value)}">${esc(cell.value)}<span class="ckd-stage">${esc(cell.stage)}</span></td>`;
+          tbody += `<td class="${arch.trim()}" style="${style}" title="${esc(tip)}" data-val="${esc(cell.value)}">${esc(cell.value)}<span class="ckd-stage">${esc(cell.stage)}</span></td>`;
         } else {
           const cls = cell.dir === 'high' ? 'lab-high' : cell.dir === 'low' ? 'lab-low' : '';
           const tipParts = [];
@@ -712,17 +719,21 @@ function buildLabPivotPanel(items, patientMeta = {}) {
           const altHtml = cell.alternates?.length
             ? `<span class="lab-alt"> /${esc(cell.alternates.join(' /'))}</span>`
             : '';
-          tbody += `<td class="${cls}" title="${esc(tipParts.join(' · '))}" data-val="${esc(cell.value)}">${esc(cell.value)}${altHtml}</td>`;
+          tbody += `<td class="${cls}${arch}" title="${esc(tipParts.join(' · '))}" data-val="${esc(cell.value)}">${esc(cell.value)}${altHtml}</td>`;
         }
       } else {
-        tbody += '<td class="no-data">-</td>';
+        tbody += `<td class="no-data${arch}">-</td>`;
       }
     }
     tbody += '</tr>';
   }
 
-  return `<div class="lab-toolbar"><span class="lab-tool-hint">點項目名稱可選取</span><a class="lab-tool-btn" onclick="selectAllLab(this)">全選</a><span class="lab-tool-sep">｜</span><a class="lab-tool-btn" onclick="clearLabSelection(this)">清空</a><span class="lab-sel-count">未選取</span></div><div class="lab-scroll"><table class="lab-pivot"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
-  <div class="tracking-note">${LAB_TRACKING_DAYS} 天內 · ${rowNames.length} 項 × ${dates.length} 次</div>${debugComment}`;
+  const archivedToggle = archivedCount > 0
+    ? `<span class="lab-tool-sep">｜</span><a class="lab-tool-btn lab-archive-btn" data-n="${archivedCount}" onclick="toggleArchivedCols(this)">+ 顯示半年前 (${archivedCount}次)</a>`
+    : '';
+  const recentCount = dates.length - archivedCount;
+  return `<div class="lab-toolbar"><span class="lab-tool-hint">點項目名稱可選取</span><a class="lab-tool-btn" onclick="selectAllLab(this)">全選</a><span class="lab-tool-sep">｜</span><a class="lab-tool-btn" onclick="clearLabSelection(this)">清空</a>${archivedToggle}<span class="lab-sel-count">未選取</span></div><div class="lab-scroll"><table class="lab-pivot"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
+  <div class="tracking-note">一年內 · ${rowNames.length} 項 · 近半年 ${recentCount} 次${archivedCount ? `(另 ${archivedCount} 次半年前已折疊)` : ''}</div>${debugComment}`;
 }
 
 // Build a hidden HTML comment carrying the raw lab fields so the clinic can
@@ -1921,6 +1932,10 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .lab-pivot th.lab-date-col { cursor:pointer; user-select:none; transition: background 0.15s; }
 .lab-pivot th.lab-date-col:hover { background:#e3f2fd; color:#1565c0; }
 .lab-pivot th.lab-date-col.copied { background:#a5d6a7 !important; color:#1b5e20; }
+/* Columns older than half a year — hidden until the doctor expands them */
+.lab-pivot .lab-col-archived { display:none; }
+.lab-pivot.show-archived .lab-col-archived { display:table-cell; }
+.lab-archive-btn { color:#8a6d3b; }
 .lab-pivot td { padding:5px 8px; text-align:center; border-bottom:1px solid #f0f0f0; }
 .lab-pivot .lab-item-name { text-align:left; font-weight:600; white-space:nowrap; position:sticky; left:0; background:#fff; z-index:1; cursor:pointer; user-select:none; transition:background 0.15s; }
 .lab-pivot .lab-item-name:hover { background:#fff8e1; }
@@ -2121,6 +2136,14 @@ function clearLabSelection(btn) {
   if (!panel) return;
   panel.querySelectorAll('.lab-pivot tbody tr.lab-row-selected').forEach(function(tr) { tr.classList.remove('lab-row-selected'); });
   updateLabSelCount(panel);
+}
+function toggleArchivedCols(btn) {
+  var panel = btn.closest('.panel-body');
+  var table = panel ? panel.querySelector('.lab-pivot') : null;
+  if (!table) return;
+  var showing = table.classList.toggle('show-archived');
+  var n = btn.dataset.n || '';
+  btn.textContent = showing ? ('− 收合半年前 (' + n + '次)') : ('+ 顯示半年前 (' + n + '次)');
 }
 function copyLabColumn(th) {
   var idx = th.cellIndex;
