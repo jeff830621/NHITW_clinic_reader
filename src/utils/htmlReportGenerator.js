@@ -837,54 +837,83 @@ function isFemaleSex(s) {
 //   UPCR (mg/g) = urine_protein_mg/dL × 1000 / urine_creatinine_mg/dL
 //   UACR (mg/g) = urine_albumin_mg/dL × 1000 / urine_creatinine_mg/dL
 // (Albumin reported in mg/L gets divided by 10 to standardise to mg/dL.)
+// Convert any lab concentration to mg/dL so UPCR/UACR ratios come out in the
+// standard mg/g regardless of how a given hospital reported the components.
+// Returns null for units we don't recognise (caller then skips that row
+// rather than guessing). molarMassMgPerMmol enables molar units (mmol/L,
+// umol/L) — pass creatinine's 113.12; leave undefined for proteins/albumin
+// (macromolecules aren't reported molar).
+//   1 ug/mL = 1 mg/L = 0.1 mg/dL;  1 g/L = 100 mg/dL;  1 mg/L = 0.1 mg/dL
+function concToMgDl(value, unit, molarMassMgPerMmol) {
+  if (!isFinite(value)) return null;
+  // normalise: lowercase, drop spaces, µ→u, strip a trailing '.'
+  const u = String(unit || '').toLowerCase().replace(/\s+/g, '').replace(/µ/g, 'u').replace(/\.$/, '');
+  const massTable = {
+    'mg/dl': 1, 'mgdl': 1,
+    'mg/l': 0.1,
+    'g/dl': 1000, 'gm/dl': 1000,
+    'g/l': 100,
+    'mg/ml': 100,
+    'ug/ml': 0.1, 'mcg/ml': 0.1,           // = mg/L
+    'ug/dl': 0.001, 'mcg/dl': 0.001,
+    'ug/l': 0.0001, 'mcg/l': 0.0001,
+    'ng/ml': 0.0001,
+    'ng/dl': 0.000001,
+  };
+  if (massTable[u] != null) return value * massTable[u];
+  if (molarMassMgPerMmol) {
+    if (u === 'mmol/l') return value * molarMassMgPerMmol / 10;      // mg/L → mg/dL
+    if (u === 'umol/l') return value * molarMassMgPerMmol / 10000;   // ug/L-scale → mg/dL
+  }
+  return null; // unrecognised unit
+}
+
 function computeUrineRatios(rObject) {
   if (!Array.isArray(rObject)) return { upcrByDate: {}, uacrByDate: {} };
-  const proteinByDate = {};
-  const albuminByDate = {}; // { value, unit }
+  const CR_MW = 113.12;          // creatinine mg per mmol (for molar units)
+  const proteinByDate = {};      // all values standardised to mg/dL
+  const albuminByDate = {};
   const ucrByDate = {};
   for (const l of rObject) {
     const name = (l.assay_item_name || '').toString();
     const orderName = (l.order_name || '').toString();
     const code = (l.order_code || '').trim();
-    const unit = (l.unit_data || '').toString().toLowerCase().trim();
+    const unit = (l.unit_data || '').toString().trim();
     const val = parseFloat(l.assay_value);
     const date = parseDate(l.real_inspect_date || l.recipe_date || '');
     if (!isFinite(val) || val <= 0 || !date) continue;
-    // Skip rows already in ratio units (mg/g) — those are pre-computed
-    // UPCR/UACR; let them flow through the normal canonical pipeline.
+    // Pre-computed ratios (mg/g) flow through the canonical pipeline, not here.
     if (/mg\s*\/\s*g/i.test(unit)) continue;
     const joined = (name + ' ' + orderName).toLowerCase();
-    // Urine creatinine
-    if (code === '09016C' || /urine creatinine|尿.*肌酸酐|肌酸酐.*尿|\bu-?cr\b/i.test(joined)) {
-      if (ucrByDate[date] == null) ucrByDate[date] = val;
+    // Urine creatinine (molar units supported via CR_MW)
+    if (code === '09016C' || /urine creatinine|尿.*肌酸酐|肌酸酐.*尿|肌酐.*尿|尿.*肌酐|\bu-?cr\b/i.test(joined)) {
+      const mgdl = concToMgDl(val, unit, CR_MW);
+      if (mgdl != null && ucrByDate[date] == null) ucrByDate[date] = mgdl;
       continue;
     }
-    // Raw urine protein (NOT the pre-computed ratio). Guard: only treat as raw
-    // when the unit is a concentration (mg/dL) and the value is in the
-    // plausible-concentration range (< 500 mg/dL — even nephrotic-range
-    // protein is well under that).
-    if ((code === '09040C' || /urine protein|尿蛋白/i.test(joined)) && /mg\/?dl/i.test(unit) && val < 500) {
-      if (proteinByDate[date] == null) proteinByDate[date] = val;
+    // Raw urine microalbumin (concentration — mg/g ratios already skipped)
+    if (code === '12111C' || /microalbumin|urine albumin|尿微?白蛋白|微白蛋白/i.test(joined)) {
+      const mgdl = concToMgDl(val, unit);
+      if (mgdl != null && albuminByDate[date] == null) albuminByDate[date] = mgdl;
       continue;
     }
-    // Raw urine microalbumin (concentration, not ratio)
-    if (/microalbumin|urine albumin|尿微?白蛋白/i.test(joined) && /mg\/?[dl]/i.test(unit)) {
-      if (albuminByDate[date] == null) albuminByDate[date] = { value: val, unit };
+    // Raw urine protein. Plausibility: concentration < 500 mg/dL (even
+    // nephrotic-range is well under that; guards against a ratio slipping in).
+    if (code === '09040C' || /urine protein|尿蛋白/i.test(joined)) {
+      const mgdl = concToMgDl(val, unit);
+      if (mgdl != null && mgdl < 500 && proteinByDate[date] == null) proteinByDate[date] = mgdl;
       continue;
     }
   }
   const upcrByDate = {};
   for (const [date, p] of Object.entries(proteinByDate)) {
     const ucr = ucrByDate[date];
-    if (ucr > 0) upcrByDate[date] = p * 1000 / ucr;
+    if (ucr > 0) upcrByDate[date] = p * 1000 / ucr;   // mg/g
   }
   const uacrByDate = {};
   for (const [date, a] of Object.entries(albuminByDate)) {
     const ucr = ucrByDate[date];
-    if (!(ucr > 0)) continue;
-    // Standardise albumin to mg/dL — many labs report it as mg/L.
-    const aMgDl = /mg\s*\/\s*l\b/i.test(a.unit) && !/mg\s*\/\s*dl/i.test(a.unit) ? a.value / 10 : a.value;
-    uacrByDate[date] = aMgDl * 1000 / ucr;
+    if (ucr > 0) uacrByDate[date] = a * 1000 / ucr;   // mg/g
   }
   return { upcrByDate, uacrByDate };
 }
