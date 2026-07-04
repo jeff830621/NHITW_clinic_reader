@@ -255,7 +255,7 @@ const LAB_ALIAS = [
   ['T-Bil', ['total bilirubin', 't-bil', 'tbil', '總膽紅素', '膽紅素總量', '總膽色素']],
   ['D-Bil', ['direct bilirubin', 'd-bil', 'dbil', '直接膽紅素', '直接膽色素']],
   ['BUN', ['bun', '尿素氮', '血中尿素氮', '尿素氮(bun)']],
-  ['Cr', ['cr', 'creatinine', '肌酸酐', '肌酐', '血清肌酸酐', '肌酸肝']],
+  ['Cr', ['cr', 'creatinine', 'blood creatinine', 'creatinine(b)', 'creatinine (b)', 'cre', 'cre(b)', 'crtn', 'serum creatinine', '肌酸酐', '肌酐', '血清肌酸酐', '肌酸肝', '血中肌酸酐', '肌酸酐、血', '肌酸酐,血']],
   ['Na', ['na', 'sodium', '鈉']],
   ['K', ['k', 'potassium', '鉀']],
   ['Cl', ['cl', 'chloride', '氯']],
@@ -451,7 +451,7 @@ function canonicalLabName(l) {
     // Strip parens AND any trailing/leading separator detritus (空格, 半形/全形
     // 分號逗號頓號冒號) so e.g. '腎絲球過濾率(新) ;(eGFR-CKD-EPI)' → after
     // paren-strip → '腎絲球過濾率 ;' → matches the alias '腎絲球過濾率'.
-    const noParen = norm.replace(/\(.*?\)/g, '').replace(/^[\s;,，、:：]+|[\s;,，、:：]+$/g, '').trim();
+    const noParen = norm.replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '').replace(/^[\s;,，、:：]+|[\s;,，、:：]+$/g, '').trim();
     if (noParen) canon = LAB_ALIAS_LOOKUP.get(noParen);
   }
   // Fallback: 衛生所 / 區域醫院 sometimes ship the raw NHI order code as
