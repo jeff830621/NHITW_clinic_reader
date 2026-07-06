@@ -352,9 +352,11 @@ const ORDER_CODE_NAME = {
 // as a specimen marker after the analyte name.
 const URINE_HINT = /\burine\b|\burinary\b|尿液|\(\s*尿\s*\)|（\s*尿\s*）|[、，]\s*尿/i;
 
-// NHI urinalysis panel order code (尿液常規). Anything glucose-named here is
-// urine glucose, never blood.
-const URINALYSIS_ORDER_CODES = new Set(['06012C']);
+// NHI urinalysis dipstick panel order codes: 06012C 尿液常規, 06013C 尿生化試紙
+// (蛋白/糖/微白蛋白 皆為半定量). Glucose-named items here are urine glucose,
+// never blood; and every reading is a 試紙 grade, so these codes are likewise
+// barred from any computed value (eGFR / eUPCR / eUACR) — see isDipstickUrinalysis.
+const URINALYSIS_ORDER_CODES = new Set(['06012C', '06013C']);
 
 // Read the specimen type straight from NHI's metadata — we used to only
 // parse the assay_item_name string, which missed plenty of cases where the
@@ -415,6 +417,20 @@ function isUrineDipstickValue(v) {
   const s = String(v == null ? '' : v).trim();
   if (s === '') return false;
   return DIPSTICK_MARKER.test(s) || !/\d/.test(s);
+}
+
+// 試紙尿檢 (urine dipstick / 半定量 urinalysis). Per clinic rule these graded
+// readings must NEVER feed a computed value — eGFR, eUPCR/eUACR — because
+// "100" / "30" / "1+ (30)" are bracket estimates, not precise concentrations.
+// They still display in the lab panel; they're only barred from the math. A row
+// is dipstick when: it rides a urinalysis panel code (06012C/06013C), it's
+// flagged 半定量, or its value is itself a dipstick grade ("500(3+)", "Trace").
+function isDipstickUrinalysis(l) {
+  const code = (l.order_code || '').trim();
+  if (URINALYSIS_ORDER_CODES.has(code)) return true;
+  const name = (l.assay_item_name || '') + (l.order_name || '');
+  if (/半定量/.test(name)) return true;
+  return isUrineDipstickValue(l.assay_value);
 }
 
 // Pull the upper bound out of an NHI consult_value string. Handles:
@@ -884,11 +900,10 @@ function computeUrineRatios(rObject) {
     if (!isFinite(val) || val <= 0 || !date) continue;
     // Pre-computed ratios (mg/g) flow through the canonical pipeline, not here.
     if (/mg\s*\/\s*g/i.test(unit)) continue;
-    // Skip semi-quantitative dipstick panels (06013C urine biochemistry, or any
-    // item flagged 半定量). Their microalbumin/creatinine are graded estimates
-    // ("1+ (30)", "100"), not precise concentrations — feeding them into a ratio
-    // yields a spurious eUACR that can false-trigger CKD proteinuria.
-    if (code === '06013C' || /半定量/.test(name + orderName)) continue;
+    // 試紙尿檢 never feeds a computed ratio (clinic rule): dipstick grades like
+    // "1+ (30)" / "100" are estimates, not the precise concentrations a ratio
+    // needs — using them yields a spurious eUACR that can false-trigger CKD.
+    if (isDipstickUrinalysis(l)) continue;
     const joined = (name + ' ' + orderName).toLowerCase();
     // Urine creatinine (molar units supported via CR_MW)
     if (code === '09016C' || /urine creatinine|尿.*肌酸酐|肌酸酐.*尿|肌酐.*尿|尿.*肌酐|\bu-?cr\b/i.test(joined)) {
@@ -1377,6 +1392,9 @@ function findAbnormalProteinuria(labData) {
   // Then: pre-computed UPCR/UACR rows that came through the canonical pipeline
   const latestByName = {};
   for (const l of labData.rObject) {
+    // 試紙尿檢 stays out of the proteinuria decision too — a 半定量 ratio row
+    // (e.g. "微白蛋白/肌酐酸比值(半定量) 1+ (30)") must never count as a real UACR.
+    if (isDipstickUrinalysis(l)) continue;
     // Defensive: strip a trailing (尿) suffix in case any path re-introduces
     // it — the exact-match below must still recognise the ratio.
     const n = canonicalLabName(l).replace(/[(（]\s*尿\s*[)）]\s*$/, '');
