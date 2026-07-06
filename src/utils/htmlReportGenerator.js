@@ -884,6 +884,11 @@ function computeUrineRatios(rObject) {
     if (!isFinite(val) || val <= 0 || !date) continue;
     // Pre-computed ratios (mg/g) flow through the canonical pipeline, not here.
     if (/mg\s*\/\s*g/i.test(unit)) continue;
+    // Skip semi-quantitative dipstick panels (06013C urine biochemistry, or any
+    // item flagged 半定量). Their microalbumin/creatinine are graded estimates
+    // ("1+ (30)", "100"), not precise concentrations — feeding them into a ratio
+    // yields a spurious eUACR that can false-trigger CKD proteinuria.
+    if (code === '06013C' || /半定量/.test(name + orderName)) continue;
     const joined = (name + ' ' + orderName).toLowerCase();
     // Urine creatinine (molar units supported via CR_MW)
     if (code === '09016C' || /urine creatinine|尿.*肌酸酐|肌酸酐.*尿|肌酐.*尿|尿.*肌酐|\bu-?cr\b/i.test(joined)) {
