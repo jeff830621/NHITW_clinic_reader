@@ -1372,43 +1372,47 @@ function getLatestLabValue(labData, canonical) {
 function findAbnormalProteinuria(labData) {
   if (!labData?.rObject) return null;
 
-  // First: synthesised ratios from raw components — catches labs that don't
-  // report a pre-computed UPCR/UACR, so the CKD badge still fires when
-  // proteinuria is real but only the components are on file.
-  const { upcrByDate, uacrByDate } = computeUrineRatios(labData.rObject);
-  const latestAbn = (byDate, threshold, label) => {
-    let best = null;
-    for (const [date, ratio] of Object.entries(byDate)) {
-      if (ratio < threshold) continue;
-      if (!best || date > best.date) {
-        best = { date, value: ratio.toFixed(0), ref: `<${threshold}`, code: '', name: label };
-      }
-    }
-    return best;
-  };
-  const synth = latestAbn(upcrByDate, 150, 'eUPCR(計算)') || latestAbn(uacrByDate, 30, 'eUACR(計算)');
-  if (synth) return synth;
+  // CKD enrolment may ONLY consider the most recent relevant draw — an older
+  // abnormal proteinuria result must never resurrect once a newer (normal) one
+  // exists (只看最近1次相關的抽血數據). So gather every proteinuria data point
+  // with its date + abnormal flag, then judge solely by the latest draw.
+  const points = [];   // { date, high, value, ref, code, name }
 
-  // Then: pre-computed UPCR/UACR rows that came through the canonical pipeline
-  const latestByName = {};
+  // Synthesised ratios from raw components (dipstick already excluded upstream)
+  // — catches labs that report only the parts, not a pre-computed UPCR/UACR.
+  const { upcrByDate, uacrByDate } = computeUrineRatios(labData.rObject);
+  for (const [date, ratio] of Object.entries(upcrByDate)) {
+    points.push({ date, high: ratio >= 150, value: ratio.toFixed(0), ref: '<150', code: '', name: 'eUPCR(計算)' });
+  }
+  for (const [date, ratio] of Object.entries(uacrByDate)) {
+    points.push({ date, high: ratio >= 30, value: ratio.toFixed(0), ref: '<30', code: '', name: 'eUACR(計算)' });
+  }
+
+  // Lab-reported UPCR/UACR rows (試紙尿檢 excluded — a 半定量 ratio like
+  // "微白蛋白/肌酐酸比值(半定量) 1+ (30)" must never count as a real UACR).
   for (const l of labData.rObject) {
-    // 試紙尿檢 stays out of the proteinuria decision too — a 半定量 ratio row
-    // (e.g. "微白蛋白/肌酐酸比值(半定量) 1+ (30)") must never count as a real UACR.
     if (isDipstickUrinalysis(l)) continue;
-    // Defensive: strip a trailing (尿) suffix in case any path re-introduces
-    // it — the exact-match below must still recognise the ratio.
+    // Defensive: strip a trailing (尿) suffix in case any path re-introduces it.
     const n = canonicalLabName(l).replace(/[(（]\s*尿\s*[)）]\s*$/, '');
     if (n !== 'UPCR' && n !== 'UACR') continue;
-    const d = parseDate(l.real_inspect_date || l.recipe_date || '');
-    if (!d) continue;
-    if (!latestByName[n] || d > latestByName[n].date) {
-      latestByName[n] = { date: d, value: l.assay_value, ref: l.consult_value || '', code: l.order_code || '', name: n };
-    }
+    const date = parseDate(l.real_inspect_date || l.recipe_date || '');
+    if (!date) continue;
+    points.push({
+      date, high: labDirection(l.assay_value, l.consult_value, l.order_code) === 'high',
+      value: l.assay_value, ref: l.consult_value || '', code: l.order_code || '', name: n,
+    });
   }
-  for (const rec of Object.values(latestByName)) {
-    if (labDirection(rec.value, rec.ref, rec.code) === 'high') return rec;
-  }
-  return null;
+
+  if (points.length === 0) return null;
+
+  // Anchor on the last date a proteinuria marker was actually measured. A more
+  // recent NON-proteinuria panel (e.g. a lone serum Cr) doesn't reset it. If the
+  // latest such draw is abnormal → proteinuria; if normal → none (older abnormal
+  // values are 先前的 data and are ignored). Synth points precede canonical ones
+  // so the computed ratio keeps its historical precedence on a tie.
+  const latestDate = points.reduce((m, p) => (p.date > m ? p.date : m), '');
+  const onLatest = points.filter(p => p.date === latestDate);
+  return onLatest.find(p => p.high) || null;
 }
 // Lab-reported eGFR: trust a plain number; ignore fuzzy '>60 (100 僅供參考)'
 // text — that carries little information, so a CKD-EPI computation from
@@ -1431,15 +1435,15 @@ function buildCkdBadge(data, patientMeta = {}) {
   const hasAgeSex = (typeof age === 'number' && age > 0 && !!patientMeta?.sex);
   const isFemale = patientMeta?.sex ? isFemaleSex(patientMeta.sex) : false;
 
-  // Decide the eGFR used for staging. The lab-reported eGFR is what NHI /
-  // the lab officially filed, so it takes priority; we fall back to a
-  // CKD-EPI computation from serum Cr only when there's no usable lab eGFR.
+  // Decide the eGFR used for staging. Only the most recent renal draw counts
+  // (只看最近1次相關的抽血數據): the lab-filed eGFR is authoritative and wins on
+  // a tie, so we use it UNLESS a strictly newer serum Cr exists — a stale lab
+  // eGFR must not override a fresher Cr. If the Cr path can't produce a value
+  // (implausible, or no age/sex to compute), fall back to the lab eGFR.
   let egfr = null, basis = '', basisDate = '';
-  if (labGfr != null && labGfr > 0) {
-    egfr = labGfr;
-    basis = `Lab eGFR ${labGfr} mL/min/1.73m²（檢驗報告認列）`;
-    basisDate = labGfrRec.date;
-  } else if (cr) {
+  const labGfrUsable = labGfr != null && labGfr > 0;
+  const useCr = cr && (!labGfrUsable || cr.date > labGfrRec.date);
+  if (useCr) {
     const scr = parseFloat(cr.value);
     if (scr > 15) {
       console.warn('[NHITW Clinic] CKD badge: ignoring Cr=' + scr + ' (not plausible as serum)');
@@ -1448,6 +1452,11 @@ function buildCkdBadge(data, patientMeta = {}) {
       basis = `Cr=${scr} mg/dL（CKD-EPI 計算）`;
       basisDate = cr.date;
     }
+  }
+  if (egfr == null && labGfrUsable) {
+    egfr = labGfr;
+    basis = `Lab eGFR ${labGfr} mL/min/1.73m²（檢驗報告認列）`;
+    basisDate = labGfrRec.date;
   }
   console.log('[NHITW Clinic] CKD check: labGFR=' + labGfr + ' Cr=' + (cr?.value ?? 'none') + ' → eGFR=' + (egfr != null ? egfr.toFixed(1) : 'null') + ' (' + (basis || 'no basis') + ')');
   if (egfr == null) return '';
