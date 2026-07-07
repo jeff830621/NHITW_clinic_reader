@@ -12,8 +12,21 @@ function sendNativeMessage(message) {
       const port = chrome.runtime.connectNative(HOST_NAME);
       let responded = false;
 
+      // A hung host (share offline mid-write, AV lock) used to leave this
+      // promise pending forever — the export wedged with no error and the open
+      // port kept the worker alive. Bound it.
+      const timer = setTimeout(() => {
+        if (!responded) {
+          responded = true;
+          try { port.disconnect(); } catch (_) {}
+          reject(new Error("NATIVE_HOST_TIMEOUT: 主機 20 秒未回應（共享資料夾離線或檔案被鎖定？）"));
+        }
+      }, 20000);
+
       port.onMessage.addListener((response) => {
+        if (responded) return;
         responded = true;
+        clearTimeout(timer);
         port.disconnect();
         if (response.success) {
           resolve(response);
@@ -24,6 +37,8 @@ function sendNativeMessage(message) {
 
       port.onDisconnect.addListener(() => {
         if (!responded) {
+          responded = true;
+          clearTimeout(timer);
           const error = chrome.runtime.lastError?.message || "Native host disconnected";
           reject(new Error(error));
         }

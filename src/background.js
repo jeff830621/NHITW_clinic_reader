@@ -39,7 +39,7 @@ let _activePatientTabId = -1;
 // session-data clears. Otherwise a saveToken that arrives *before* the
 // content-script's clearSessionData/userSessionChanged message gets wiped,
 // and the HTML report falls back to ID-only filename.
-const IDENTITY_KEYS = new Set(['token', 'currentUserSession', 'patientName', 'patientIdFromToken']);
+const IDENTITY_KEYS = new Set(['token', 'currentUserSession', 'patientName', 'patientIdFromToken', '_identityCapturedSession']);
 
 function clearMedicalData() {
   for (const key of Object.keys(currentSessionData)) {
@@ -70,6 +70,9 @@ function getClinicSession(date) {
 // so an identical re-fire doesn't produce a duplicate file. In-memory only —
 // a SW restart resets it, at worst re-writing one identical report.
 let _lastExportFingerprint = null;
+// Concurrent-export lock: a hung native write must not let a second alarm run
+// a parallel export of the same content (fingerprint not yet committed).
+let _exportInFlight = false;
 
 function scheduleExport() {
   // Debounce by RESET: every new data arrival (or saveToken) pushes the
@@ -93,10 +96,50 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 async function autoExportToSharedFolder() {
+  if (_exportInFlight) {
+    console.log('[NHITW Clinic] Export already in flight — skipping concurrent run');
+    return;
+  }
+  _exportInFlight = true;
   try {
     const settings = await chrome.storage.sync.get('sharedFolder');
     const sharedFolder = settings.sharedFolder || {};
     if (!sharedFolder.enabled) return;
+
+    // #9a — MV3 worker restarts wipe module state while the chrome.alarm
+    // survives, so this can run with an empty currentSessionData even though
+    // every payload sits in chrome.storage.local (saveDataHandler persists
+    // them). Rehydrate when memory is empty AND the stored batch is fresh
+    // (<10 min) — stale batches stay ignored so a browser-restart alarm can't
+    // re-export yesterday's patient.
+    const memoryHasData = Object.entries(currentSessionData).some(([k, v]) => {
+      if (IDENTITY_KEYS.has(k)) return false;
+      const arr = v?.rObject || v?.robject;
+      return Array.isArray(arr) ? arr.length > 0 : !!v;
+    });
+    if (!memoryHasData) {
+      const stored = await chrome.storage.local.get(
+        [...Object.values(DATA_TYPE_TO_STORAGE_KEY), 'currentUserSession', '_lastSaveAt']);
+      if (stored._lastSaveAt && (Date.now() - stored._lastSaveAt) < 10 * 60 * 1000) {
+        let restored = 0;
+        for (const key of Object.values(DATA_TYPE_TO_STORAGE_KEY)) {
+          if (stored[key] && !currentSessionData[key]) { currentSessionData[key] = stored[key]; restored++; }
+        }
+        if (!currentSessionData.currentUserSession && stored.currentUserSession) {
+          currentSessionData.currentUserSession = stored.currentUserSession;
+        }
+        if (restored > 0) console.warn(`[NHITW Clinic] worker was recycled — rehydrated ${restored} data types from storage`);
+      }
+    }
+
+    // #9b — the content-dedup fingerprint must survive worker recycling too,
+    // or NHI's periodic API re-fires keep producing identical duplicate files.
+    if (_lastExportFingerprint == null) {
+      try {
+        const s = await chrome.storage.session.get('lastExportFingerprint');
+        if (s.lastExportFingerprint) _lastExportFingerprint = s.lastExportFingerprint;
+      } catch (_) { /* storage.session unavailable → in-memory only */ }
+    }
 
     // Ask content script for fresh patient info from the SPECIFIC tab whose
     // API activity triggered this export (tracked via _activePatientTabId).
@@ -146,6 +189,9 @@ async function autoExportToSharedFolder() {
       } else if (switched || !currentSessionData.patientName) {
         currentSessionData.patientName = fresh.id;
       }
+      // Fresh identity is read from the CURRENT tab right now → bind it to the
+      // current session (#2), same as the saveToken path.
+      currentSessionData._identityCapturedSession = currentSessionData.currentUserSession || null;
       patientMeta = { age: fresh.age ?? null, sex: fresh.sex || '', birthday: fresh.birthday || '' };
     }
 
@@ -167,6 +213,20 @@ async function autoExportToSharedFolder() {
         console.warn(`[NHITW Clinic] identity/session mismatch (id=${maskPii(patientId, 4, 3)} vs session=${maskPii(sessionId, 4, 3)}) — deferring export until they sync`);
         return;
       }
+    }
+    // #2 general form — covers token_/dom_ sessions the ID check above can't
+    // verify: identity captured under a DIFFERENT session than the current one
+    // is stale. Deferring can't help here (there's no ID to sync against), so
+    // drop the identity and continue — the fallback naming below produces an
+    // anonymous-but-correctly-scoped report instead of one with the wrong name.
+    const capturedUnder = currentSessionData._identityCapturedSession;
+    if (patientId && capturedUnder && userSession && capturedUnder !== userSession) {
+      console.warn(`[NHITW Clinic] identity was captured under a different session (${maskPii(capturedUnder, 8, 3)} ≠ ${maskPii(userSession, 8, 3)}) — dropping stale identity, exporting with fallback naming`);
+      currentSessionData.patientName = null;
+      currentSessionData.patientIdFromToken = null;
+      currentSessionData._identityCapturedSession = null;
+      patientId = '';
+      patientName = '';
     }
 
     // Fallback ID: extract from currentUserSession (format: "patient_A123456789")
@@ -296,9 +356,19 @@ async function autoExportToSharedFolder() {
 
     await writeHtml(filename, html, undefined, session);
     _lastExportFingerprint = fingerprint;
+    try { chrome.storage.session.set({ lastExportFingerprint: fingerprint }); } catch (_) {}
     console.log(`[NHITW Clinic] HTML report saved: ${session}/${filename}`);
   } catch (err) {
     console.warn('[NHITW Clinic] Auto-export failed (non-blocking):', err.message);
+    // #11 — surface the failure: host not installed / share offline / write
+    // timeout used to die silently in the console; the doctor believed the
+    // report was saved. Same red badge as the oversize path.
+    try {
+      chrome.action.setBadgeText({ text: '⚠' });
+      chrome.action.setBadgeBackgroundColor({ color: '#c62828' });
+    } catch (_) {}
+  } finally {
+    _exportInFlight = false;
   }
 }
 
@@ -421,9 +491,18 @@ const ACTION_HANDLERS = new Map([
     // saveToken refills it; until then export's mismatch guard holds.
     const newId = (message.userSession || '').startsWith('patient_')
       ? message.userSession.replace('patient_', '') : '';
-    if (newId && currentSessionData.patientIdFromToken && newId !== currentSessionData.patientIdFromToken) {
+    const idSwitch = newId && currentSessionData.patientIdFromToken && newId !== currentSessionData.patientIdFromToken;
+    // #2: ANY session change (patient_… ↔ token_… ↔ dom_… included) is a
+    // patient switch as far as identity is concerned — the old check only
+    // caught patient_-prefixed sessions, leaving token_/dom_ patients' stale
+    // identity alive across a switch. First-load (no previous session) keeps
+    // the early-saveToken identity, as before.
+    const sessionSwitch = currentSessionData.currentUserSession &&
+      message.userSession && message.userSession !== currentSessionData.currentUserSession;
+    if (idSwitch || sessionSwitch) {
       currentSessionData.patientName = null;
       currentSessionData.patientIdFromToken = null;
+      currentSessionData._identityCapturedSession = null;
     }
     currentSessionData.currentUserSession = message.userSession;
 
@@ -538,6 +617,11 @@ const ACTION_HANDLERS = new Map([
     if (message.patientIdFromToken) {
       currentSessionData.patientIdFromToken = message.patientIdFromToken;
       currentSessionData.patientName = message.patientName || message.patientIdFromToken;
+      // Bind this identity to the session it arrived under (#2). Export
+      // compares the two: identity captured under a different session is
+      // stale and must never be stamped on the current patient's report.
+      currentSessionData._identityCapturedSession =
+        message.userSession || currentSessionData.currentUserSession || null;
     }
     console.log(`[NHITW Clinic] saveToken from tab ${sender?.tab?.id ?? '?'} - Name: ${maskPii(message.patientName, 1, 1)}, ID: ${maskPii(message.patientIdFromToken, 4, 3)}`);
     scheduleExport();
@@ -585,7 +669,10 @@ function saveDataHandler(type) {
     // 保存到 storage
     const storageObj = {
       [storageKey]: message.data,
-      currentUserSession: message.userSession || currentSessionData.currentUserSession
+      currentUserSession: message.userSession || currentSessionData.currentUserSession,
+      // Freshness stamp for #9a rehydration — a worker-recycled alarm may only
+      // restore from storage when the batch is recent.
+      _lastSaveAt: Date.now()
     };
 
     chrome.storage.local.set(storageObj, function() {

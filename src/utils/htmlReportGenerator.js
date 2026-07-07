@@ -492,11 +492,21 @@ function canonicalLabName(l) {
   const norm = normalizeLabName(rawName);
   let canon = LAB_ALIAS_LOOKUP.get(norm);
   if (!canon) {
-    // Strip parens AND any trailing/leading separator detritus (空格, 半形/全形
-    // 分號逗號頓號冒號) so e.g. '腎絲球過濾率(新) ;(eGFR-CKD-EPI)' → after
-    // paren-strip → '腎絲球過濾率 ;' → matches the alias '腎絲球過濾率'.
-    const noParen = norm.replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '').replace(/^[\s;,，、:：]+|[\s;,，、:：]+$/g, '').trim();
-    if (noParen) canon = LAB_ALIAS_LOOKUP.get(noParen);
+    // Analyte-changing qualifiers: when the parenthetical itself distinguishes
+    // a DIFFERENT test — Glucose(2hPC), T4(Free), Cholesterol(HDL) — stripping
+    // it would merge two analytes into one row (a 飯後 180 rendering as red
+    // fasting Glucose). Bail on the fallback for those; an unmerged extra row
+    // is safe, a false merge is not. (audit finding #7)
+    const parenContents = [];
+    norm.replace(/[(\[]([^)\]]*)[)\]]/g, (_, c) => { parenContents.push(String(c).trim()); return ''; });
+    const ANALYTE_QUALIFIER = /^(pc|pp|2\s*h(\s*pc)?|飯後|餐後|post\s*cibum|postprandial|free|f-?t[34]|hdl|ldl|direct|indirect|直接|間接)$/i;
+    if (!parenContents.some(c => ANALYTE_QUALIFIER.test(c))) {
+      // Strip parens AND any trailing/leading separator detritus (空格, 半形/全形
+      // 分號逗號頓號冒號) so e.g. '腎絲球過濾率(新) ;(eGFR-CKD-EPI)' → after
+      // paren-strip → '腎絲球過濾率 ;' → matches the alias '腎絲球過濾率'.
+      const noParen = norm.replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '').replace(/^[\s;,，、:：]+|[\s;,，、:：]+$/g, '').trim();
+      if (noParen) canon = LAB_ALIAS_LOOKUP.get(noParen);
+    }
   }
   // Fallback: 衛生所 / 區域醫院 sometimes ship the raw NHI order code as
   // the assay_item_name (so we see '09005C' as a sibling of 'Glucose').
@@ -1420,6 +1430,27 @@ function findAbnormalProteinuria(labData) {
     points.push({ date, high: ratio >= 30, value: ratio.toFixed(0), ref: '<30', code: '', name: 'eUACR(計算)' });
   }
 
+  // Below-detection quantitative components ("0", "<4"): the ratio loop above
+  // must skip them (no number to divide), but the draw itself IS the newest
+  // proteinuria evidence — essentially none. Without a normal anchor point
+  // here, the latest-draw rule would fall back to an OLDER abnormal ratio and
+  // resurrect 先前的 data (audit finding #6).
+  for (const l of labData.rObject) {
+    if (isDipstickUrinalysis(l)) continue;
+    const raw = String(l.assay_value == null ? '' : l.assay_value).trim();
+    const belowDetect = /^[<＜]\s*\d/.test(raw) || parseFloat(raw) === 0;
+    if (!belowDetect) continue;
+    const date = parseDate(l.real_inspect_date || l.recipe_date || '');
+    if (!date) continue;
+    const code = (l.order_code || '').trim();
+    const joined = ((l.assay_item_name || '') + ' ' + (l.order_name || '')).toLowerCase();
+    if (code === '12111C' || /microalbumin|urine albumin|尿微?白蛋白|微白蛋白/i.test(joined)) {
+      points.push({ date, high: false, value: raw, ref: '<30', code, name: 'eUACR(計算)' });
+    } else if (code === '09040C' || /urine protein|尿蛋白/i.test(joined)) {
+      points.push({ date, high: false, value: raw, ref: '<150', code, name: 'eUPCR(計算)' });
+    }
+  }
+
   // Lab-reported UPCR/UACR rows (試紙尿檢 excluded — a 半定量 ratio like
   // "微白蛋白/肌酐酸比值(半定量) 1+ (30)" must never count as a real UACR).
   for (const l of labData.rObject) {
@@ -1620,7 +1651,7 @@ function buildWestMedPanel(items, trackingDays) {
         // Sort prescriptions newest first
         med.prescriptions.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
         const presStr = med.prescriptions.slice(0, 3).map(p =>
-          `<span class="med-pres">${esc(shortDate(p.date))} ${esc(p.hosp)}${p.drugLeft && p.drugLeft !== '0' ? ` <span class="drug-left">餘${p.drugLeft}天</span>` : ''}</span>`
+          `<span class="med-pres">${esc(shortDate(p.date))} ${esc(p.hosp)}${p.drugLeft && p.drugLeft !== '0' ? ` <span class="drug-left">餘${esc(p.drugLeft)}天</span>` : ''}</span>`
         ).join(' ');
 
         rows += `<tr>
@@ -1738,7 +1769,7 @@ function buildChineseMedPanel(items) {
     for (const r of byKey.values()) {
       const altTip = r.alts.length ? ` title="同筆處方另存 qty=${esc(r.alts.join(', '))}"` : '';
       const altMark = r.alts.length ? ` <span class="med-dup">⚠</span>` : '';
-      html += `<div class="med-item"${altTip}>${esc(r.name)} <span class="med-detail">${esc(r.raw)} ${esc(r.freq)} ${r.days ? r.days+'天' : ''}${altMark}</span></div>`;
+      html += `<div class="med-item"${altTip}>${esc(r.name)} <span class="med-detail">${esc(r.raw)} ${esc(r.freq)} ${r.days ? esc(r.days)+'天' : ''}${altMark}</span></div>`;
     }
   }
   return html;
@@ -2129,6 +2160,10 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
   .panel-body.collapsed { display:block !important; }
   .clinic-credit { position:fixed; bottom:4px; right:6px; background:transparent; color:#666; }
   .panel-title::before { content:'▾ ' !important; }
+  /* 列印 = 完整病歷:收合的較早診斷與半年前檢驗欄一律展開;切換鈕不印 */
+  .diag-more-list { display:block !important; }
+  .lab-pivot .lab-col-archived { display:table-cell !important; }
+  .diag-more-toggle, .lab-toolbar { display:none !important; }
 }
 </style>
 </head>

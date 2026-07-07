@@ -299,6 +299,10 @@ async function checkAndInitUserSession() {
         if (isNewSession) {
           performClearPreviousData();
           currentPatientId = userInfo; // 更新當前病人標識
+          // 換卡後所有 save* 訊息的 userSession 標籤必須立即用新會話 — 這行
+          // 以前只在「同會話」分支賦值,導致換卡瞬間的訊息帶舊標籤,背景收到
+          // 後誤判會話又變了 → 清資料乒乓、暫存資料被誤刪(audit finding #10)
+          currentUserSession = userInfo;
           chrome.storage.local.set({ currentUserSession: userInfo }, () => {
             chrome.runtime.sendMessage({
               action: "userSessionChanged",
