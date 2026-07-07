@@ -139,7 +139,11 @@ function parseHosp(r) { return r ? r.split(';')[0].trim() : ''; }
 // Per user request: include every diagnosis (no top-N cap), sort by last-seen
 // date descending, and show that last date + hospital next to each code.
 function buildDiagnosisPanel(data, highlightSets = {}) {
-  const DIAG_TRACKING_DAYS = 180;
+  // Full year, to match the lab window. The 8 most-recent diagnoses stay open;
+  // older ones collapse by default (see render below) so a 中醫 clinic's sparse
+  // 針傷/中醫 history reaches back a year without the western drug list — which
+  // can be frequent — washing the panel out.
+  const DIAG_TRACKING_DAYS = 365;
   const acuSet = highlightSets.acu || new Set();
   const cancerSet = highlightSets.cancer || new Set();
   const asthmaSet = highlightSets.asthma || new Set();
@@ -199,8 +203,7 @@ function buildDiagnosisPanel(data, highlightSets = {}) {
   });
   if (list.length === 0) return '<p class="empty">無診斷紀錄</p>';
 
-  let html = '';
-  for (const d of list) {
+  const renderItem = (d) => {
     let typeTag = '';
     if (d.lastType.includes('急')) typeTag = '<span class="diag-type emergency">急</span>';
     else if (d.lastType.includes('住')) typeTag = '<span class="diag-type inpatient">住</span>';
@@ -210,11 +213,21 @@ function buildDiagnosisPanel(data, highlightSets = {}) {
     // which rendered an ugly 'F329 F329'. Drop the name when it's empty or
     // just repeats the code.
     const nameStr = (d.name && d.name.trim() && d.name.trim() !== String(d.code).trim()) ? esc(d.name) : '';
-    html += `<div class="diag-item ${matchClass(d.code)}">`
+    return `<div class="diag-item ${matchClass(d.code)}">`
       + `<div class="diag-line1">${typeTag}<span class="diag-code">${esc(d.code)}</span> ${nameStr}`
       + `<span class="diag-count">${d.count}次</span></div>`
       + `<div class="diag-line2">${esc(meta)}</div>`
       + `</div>`;
+  };
+
+  // The 8 most-recent diagnoses stay open; the older remainder collapses behind
+  // a toggle (預設收合) so a full year of history doesn't flood the panel.
+  const DIAG_VISIBLE = 8;
+  let html = list.slice(0, DIAG_VISIBLE).map(renderItem).join('');
+  const older = list.slice(DIAG_VISIBLE);
+  if (older.length > 0) {
+    html += `<div class="diag-more-toggle" onclick="toggleDiagMore(this)" data-n="${older.length}">+ 顯示較早診斷 (${older.length} 筆)</div>`
+      + `<div class="diag-more-list" style="display:none">${older.map(renderItem).join('')}</div>`;
   }
   return html;
 }
@@ -1978,6 +1991,8 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .diag-count { background:#e3f2fd; color:#1565c0; padding:0 5px; border-radius:8px; font-size:10px; font-weight:600; margin-left:auto; flex-shrink:0; }
 .diag-meta { color:#999; font-size:10px; margin-left:auto; flex-shrink:0; }
 .diag-more { color:#999; font-size:11px; padding:4px 0; text-align:center; }
+.diag-more-toggle { color:#8a6d3b; font-size:11px; padding:5px 0; text-align:center; cursor:pointer; user-select:none; border-top:1px dashed #eee; }
+.diag-more-toggle:hover { text-decoration:underline; }
 .diag-type { font-size:9px; font-weight:700; padding:0 4px; border-radius:3px; flex-shrink:0; }
 .diag-type.emergency { background:#ffebee; color:#c62828; }
 .diag-type.inpatient { background:#fff3e0; color:#e65100; }
@@ -2165,6 +2180,14 @@ function expandAll() {
 function collapseAll() {
   document.querySelectorAll('.panel-title').forEach(function(t) { t.classList.add('collapsed'); });
   document.querySelectorAll('.panel-body').forEach(function(b) { b.classList.add('collapsed'); });
+}
+function toggleDiagMore(btn) {
+  var list = btn.nextElementSibling;
+  if (!list) return;
+  var hidden = list.style.display === 'none';
+  list.style.display = hidden ? 'block' : 'none';
+  var n = btn.dataset.n || '';
+  btn.textContent = (hidden ? '− 收合較早診斷 (' : '+ 顯示較早診斷 (') + n + ' 筆)';
 }
 function findLabPanel(el) {
   // Walk up to the .panel-body that contains the lab toolbar + table.
