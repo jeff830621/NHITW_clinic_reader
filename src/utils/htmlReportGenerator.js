@@ -101,7 +101,20 @@ function formatDateTime(d) {
   return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 function esc(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
-function parseDate(r) { if(!r) return ''; if(r.includes('T')) return r.split('T')[0]; return r.replace(/\//g,'-'); }
+// Normalize any NHI date variant to ISO 'YYYY-MM-DD'. Handles ISO datetimes
+// ('2025-12-09T00:00:00'), space datetimes ('2025-12-09 08:30'), slashes, AND
+// ROC 民國年 ('114/12/09' → 2025-12-09) — some hospitals ship ROC dates, which
+// previously parsed as year 114 AD and silently fell outside every tracking
+// window (imaging/meds from those hospitals vanished from the report).
+function parseDate(r) {
+  if (!r) return '';
+  let s = String(r).trim().split(/[T ]/)[0].replace(/\//g, '-');
+  const m = s.match(/^(\d{2,4})-(\d{1,2})-(\d{1,2})$/);
+  if (!m) return s;
+  let y = parseInt(m[1], 10);
+  if (m[1].length <= 3) y += 1911; // ROC year
+  return `${y}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+}
 function shortDate(r) {
   const d = parseDate(r);
   if (!d) return '';
@@ -1160,6 +1173,10 @@ function collectAllIcdCodes(data) {
   sweep(data.dischargeData?.rObject);
   sweep(data.surgeryData?.rObject);
   sweep(data.patientSummaryData?.rObject);
+  // Pure-acupuncture visits (imue0160, 未開內服藥) carry their ICD ONLY here —
+  // without this sweep a stroke patient treated exclusively with 針灸 never
+  // lights the 高度複雜針灸 / cancer / asthma badges.
+  sweep(data.acupunctureData?.rObject || data.acupunctureData?.robject);
   const arr = Array.from(codes).filter(Boolean);
   console.log('[NHITW Clinic] Collected ICD codes for classification:', arr);
   return arr;
@@ -1536,10 +1553,11 @@ function getColorForGroup(groupName) {
 
 function isWithinDays(dateStr, days) {
   if (!dateStr) return false;
-  let d = new Date(dateStr);
-  if (isNaN(d.getTime()) && dateStr.includes('/')) {
-    d = new Date(dateStr.replace(/\//g, '-'));
-  }
+  // Route through parseDate so ROC 民國年 dates land in the right century —
+  // new Date('114/12/09') is a VALID year-114 date, so the old NaN fallback
+  // never caught it and the record silently failed every window check.
+  let d = new Date(parseDate(String(dateStr)));
+  if (isNaN(d.getTime())) d = new Date(String(dateStr));
   if (isNaN(d.getTime())) return false;
   return (Date.now() - d.getTime()) <= days * 86400000;
 }

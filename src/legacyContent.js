@@ -1659,6 +1659,11 @@ function enhancedFetchData(dataType, options = {}) {
   // 設置請求狀態
   pendingRequests[dataType] = true;
   let retryCount = 0;
+  // Sentinel:401 重試完成時直接 settle 外層 promise,用這個標記讓資料處理
+  // 鏈跳過 — 否則重試的「結果信封」{status, recordCount, dataType, data}
+  // 會被當成 API JSON 再處理一次(masterMenu 的 prsnAuth 因此被垃圾覆蓋 →
+  // 整批誤判無授權 → 無聲匯出空報告)。
+  const RETRY_SETTLED = Symbol("nhitw-retry-settled");
   // console.log(`開始獲取 ${dataType} 資料 - ${new Date().toISOString()}`);
 
   // 主要的獲取邏輯
@@ -1719,15 +1724,22 @@ function enhancedFetchData(dataType, options = {}) {
             if (response.status === 401 && retryCount < maxRetries) {
               retryCount++;
 
-              return new Promise((resolve) =>
-                setTimeout(() => resolve(attemptFetch()), retryInterval)
-              );
+              // 重試的結果直接交給本次 attempt 的 resolve/reject,不再流回
+              // 這條 .then 鏈(見 RETRY_SETTLED 註解)。鏈保持未 settle 直到
+              // 重試完成,所以 finally 清 pendingRequests 的時機不變。
+              return new Promise((res) => setTimeout(res, retryInterval))
+                .then(() => attemptFetch())
+                .then(
+                  (envelope) => { resolve(envelope); return RETRY_SETTLED; },
+                  (err) => { reject(err); return RETRY_SETTLED; }
+                );
             }
             throw new Error(`HTTP error! status: ${response.status}`);
           }
           return response.json();
         })
         .then((data) => {
+          if (data === RETRY_SETTLED) return; // 重試已 settle 外層,不再處理
           // DEBUG: 輸出 adultHealthCheck 和 cancerScreening 的回應
           if (dataType === "adultHealthCheck" || dataType === "cancerScreening") {
             console.log(`[DEBUG] enhancedFetchData 收到 ${dataType} 回應:`, data);
