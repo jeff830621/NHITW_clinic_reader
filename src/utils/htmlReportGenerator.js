@@ -139,12 +139,13 @@ function parseHosp(r) { return r ? r.split(';')[0].trim() : ''; }
 // Per user request: include every diagnosis (no top-N cap), sort by last-seen
 // date descending, and show that last date + hospital next to each code.
 function buildDiagnosisPanel(data, highlightSets = {}) {
-  // 3 years — effectively "everything NHI returns" (the cloud API takes no
-  // date-range parameter, so whatever it sends back is all we ever have; the
-  // oldest visible diagnosis therefore also reveals NHI's own retention
-  // ceiling). Panel stays tidy regardless: the 8 most-recent diagnoses stay
-  // open, older ones collapse by default (see render below).
-  const DIAG_TRACKING_DAYS = 1095;
+  // Full year, matching the lab window. (Tried 3y on 2026-07-07, rolled back
+  // same day: visit counts got inflated by stale history and the collapsed
+  // tail grew noisy — 1y is the clinically useful horizon.) The 8 most-recent
+  // diagnoses stay open; older ones collapse by default (see render below) so
+  // a sparse 針傷/中醫 history still reaches back the full year without the
+  // western drug list washing the panel out.
+  const DIAG_TRACKING_DAYS = 365;
   const acuSet = highlightSets.acu || new Set();
   const cancerSet = highlightSets.cancer || new Set();
   const asthmaSet = highlightSets.asthma || new Set();
