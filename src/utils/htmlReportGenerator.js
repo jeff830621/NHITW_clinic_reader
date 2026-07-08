@@ -268,10 +268,10 @@ const LAB_ALIAS = [
   ['Monocyte', ['monocyte', 'mono', '單核球']],
   ['Eosinophil', ['eosinophil', 'eo', '嗜伊紅性白血球', '嗜酸性球', '嗜伊紅白血球']],
   ['Basophil', ['basophil', 'baso', '嗜鹼性白血球']],
-  ['Glucose', ['glucose', 'sugar', 'ac sugar', 'blood sugar', '葡萄糖', '血糖', '飯前血糖', '空腹血糖', '飯前血糖(ac)', '飯前葡萄糖', '飯前葡萄糖(ac)', 'glucose ac', 'glucose (ac)', 'glucose(ac)', 'glu.(ac)', 'glu (ac)', 'glu(ac)', 'glu ac', 'ac glucose']],
+  ['Glucose', ['glucose', 'sugar', 'ac sugar', 'blood sugar', '葡萄糖', '血糖', '飯前血糖', '空腹血糖', '禁食血糖', '禁食血糖(ac)', '血液及體液葡萄糖', '飯前血糖(ac)', '飯前葡萄糖', '飯前葡萄糖(ac)', 'glucose ac', 'glucose (ac)', 'glucose(ac)', 'glu.(ac)', 'glu (ac)', 'glu(ac)', 'glu ac', 'ac glucose']],
   ['Glucose PC', ['glucose pc', 'glucose (pc)', 'glucose(pc)', 'glu.(pc)', 'glu (pc)', 'glu(pc)', 'glu pc', 'pc sugar', 'pc glucose', 'glucose post cibum', 'glucose-pc', 'glucose-post cibum', '飯後血糖', '餐後血糖', '飯後葡萄糖', '飯後葡萄糖(pc)', 'glucose-post cibum, pc']],
   ['HbA1c', ['hba1c', 'hb-a1c', 'hb a1c', 'a1c', 'hemoglobin a1c', '糖化血色素', '糖化血紅素', '醣化血色素', '醣化血紅素']],
-  ['Microalbumin', ['microalbumin', 'micro albumin', 'micro-albumin', '微量白蛋白', '尿微量白蛋白', 'urine microalbumin']],
+  ['Microalbumin', ['microalbumin', 'micro albumin', 'micro-albumin', '微量白蛋白', '尿微量白蛋白', 'urine microalbumin', '微白蛋白', '微白蛋白(免疫比濁法)', '尿微白蛋白']],
   ['Urine creatinine', ['urine creatinine', 'urine cr', 'u-cr', 'u cr', '尿肌酸酐', '尿肌酐', '肌酸酐,尿', '肌酐,尿', '肌酐、尿']],
   // Ratios — kept un-suffixed by canonicalLabName so the CKD proteinuria
   // check matches them exactly.
@@ -310,13 +310,29 @@ const LAB_ALIAS = [
   ['TG', ['tg', 'tg, triglycerides', 'triglyceride', 'triglycerides', 't.g.', '三酸甘油脂', '三酸甘油酯', 'tg (三酸甘油脂)']],
   ['HDL', ['hdl', 'hdl-cholesterol', 'hdl cholesterol', 'hdl-c', 'hdl chol', 'hdl-cholesterol (高密度脂蛋白膽固醇)', '高密度脂蛋白膽固醇', '高密度脂蛋白', 'hdl(高密度脂蛋白)']],
   ['LDL', ['ldl', 'ldl-cholesterol', 'ldl cholesterol', 'ldl-c', 'ldl chol', 'ldl-cholesterol (低密度脂蛋白膽固醇)', '低密度脂蛋白膽固醇', '低密度脂蛋白', 'ldl(低密度脂蛋白)']],
+  // Serology / tumor markers — long Chinese names dominate the sticky item
+  // column; map to the short form a clinician reads at a glance.
+  ['AFP', ['afp', 'alpha-fetoprotein', 'α-fetoprotein', 'a-fetoprotein', 'α-胎兒蛋白檢驗', 'α-胎兒蛋白', 'a-胎兒蛋白檢驗', '甲型胎兒蛋白', '甲種胎兒蛋白', '胎兒蛋白']],
+  ['HBsAg', ['hbsag', 'hbs-ag', 'hbs ag', 'hbv surface antigen', 'b型肝炎表面抗原', 'b型肝炎表面抗原檢查', 'b肝表面抗原']],
+  ['Anti-HCV', ['anti-hcv', 'anti hcv', 'hcv ab', 'hcv-ab', 'hcv antibody', 'c型肝炎病毒抗體', 'c型肝炎病毒抗體檢查', 'c型肝炎抗體', 'c肝抗體']],
+  // Vital signs that ride in on some labdata feeds.
+  ['SBP', ['sbp', 'systolic', 'systolic bp', 'systolic blood pressure', '收縮壓']],
+  ['DBP', ['dbp', 'diastolic', 'diastolic bp', 'diastolic blood pressure', '舒張壓']],
 ];
 function normalizeLabName(s) {
   return String(s || '')
     .toLowerCase()
     .replace(/ｃ/g, 'c')                       // fullwidth c (from Ｃ反應蛋白)
+    .replace(/脢/g, '酶')                       // 脢 = 酶/酵素 variant, so e.g.
+                                               //   血清麩胺酸苯醋酸轉氨基脢 → …酶 (GOT/GPT)
+    .replace(/[·‧∙・･]/g, '、')                 // CJK middle-dots → 、 specimen separator
+                                               //   (肌酸酐‧血 → 肌酸酐、血 = serum Cr)
     .replace(/[－–—]/g, '-')                   // fullwidth/EN/EM dashes → ascii hyphen
                                                //   (HDL－cholesterol vs HDL-cholesterol)
+    .replace(/\s*-\s*/g, '-')                  // collapse spaces around hyphen
+                                               //   (α - 胎兒蛋白 → α-胎兒蛋白)
+    .replace(/([一-鿿])-([一-鿿])/g, '$1$2') // drop hyphen BETWEEN CJK
+                                               //   (高密度脂蛋白-膽固醇 → …膽固醇 = HDL)
     .replace(/（/g, '(').replace(/）/g, ')')   // fullwidth parens
     .replace(/[?？]+\s*$/, '')                 // strip trailing ? (display truncation,
                                                //   e.g. 「血清麩胺酸苯醋酸轉氨基?」)
