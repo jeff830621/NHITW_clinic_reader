@@ -229,27 +229,39 @@ function Action-Cleanup($msg) {
     }
 }
 
-# --- Main ---
-# Auto-cleanup on startup
-try {
-    if (Test-Path $sharedFolder) {
-        $cutoff = (Get-Date).AddDays(-$retentionDays).ToString("yyyy-MM-dd")
-        $folders = Get-ChildItem -Path $sharedFolder -Directory -ErrorAction SilentlyContinue
-        foreach ($folder in $folders) {
-            if ($folder.Name -lt $cutoff -and $folder.Name -match '^\d{4}-\d{2}-\d{2}$') {
-                Remove-Item $folder.FullName -Recurse -Force
+# Auto-cleanup of expired date folders. Days precedence: the extension's
+# settings-page value carried on the message > config.json > 7. This used to
+# run BEFORE the message was read, so it could only ever use config.json and
+# silently overrode whatever the doctor set in the extension UI.
+function Invoke-AutoCleanup($msg) {
+    try {
+        $days = $retentionDays
+        if ($msg -and $msg.retentionDays) {
+            $parsed = 0
+            if ([int]::TryParse([string]$msg.retentionDays, [ref]$parsed) -and $parsed -ge 1) {
+                $days = $parsed
             }
         }
-    }
-} catch { }
+        if (Test-Path $sharedFolder) {
+            $cutoff = (Get-Date).AddDays(-$days).ToString("yyyy-MM-dd")
+            $folders = Get-ChildItem -Path $sharedFolder -Directory -ErrorAction SilentlyContinue
+            foreach ($folder in $folders) {
+                if ($folder.Name -lt $cutoff -and $folder.Name -match '^\d{4}-\d{2}-\d{2}$') {
+                    Remove-Item $folder.FullName -Recurse -Force
+                }
+            }
+        }
+    } catch { }
+}
 
+# --- Main ---
 # Process single message
 $message = Read-Message
 if ($null -eq $message) { exit 0 }
 
 switch ($message.action) {
-    "write_patient"  { Action-WritePatient $message }
-    "write_html"     { Action-WriteHtml $message }
+    "write_patient"  { Invoke-AutoCleanup $message; Action-WritePatient $message }
+    "write_html"     { Invoke-AutoCleanup $message; Action-WriteHtml $message }
     "read_manifest"  { Action-ReadManifest $message }
     "read_patient"   { Action-ReadPatient $message }
     "search_patient" { Action-SearchPatient $message }

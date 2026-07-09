@@ -82,14 +82,17 @@ export async function readPatient(filename, date) {
  * @param {string} content  - full HTML
  * @param {string} [date]   - "yyyy-MM-dd" date folder; defaults to host today
  * @param {string} [session] - "早診"/"午診"/"晚診" subfolder under date folder
+ * @param {number} [retentionDays] - settings-page 保留天數; host cleans expired
+ *   date folders with THIS value after the write (falls back to its config.json)
  */
-export async function writeHtml(filename, content, date, session) {
+export async function writeHtml(filename, content, date, session, retentionDays) {
   return sendNativeMessage({
     action: "write_html",
     filename: filename,
     content: content,
     date: date || undefined,
     session: session || undefined,
+    retentionDays: retentionDays || undefined,
   });
 }
 

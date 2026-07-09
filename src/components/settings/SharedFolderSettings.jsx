@@ -77,7 +77,8 @@ export default function SharedFolderSettings() {
             onChange={(e) => handleChange('retentionDays', parseInt(e.target.value) || 7)}
             size="small"
             inputProps={{ min: 1, max: 90 }}
-            sx={{ width: 100 }}
+            sx={{ width: 220 }}
+            helperText="報告在共享資料夾保留的天數，到期自動刪除（需 2026-07-09 之後版本的主機）"
           />
 
           <Divider sx={{ my: 2 }} />
