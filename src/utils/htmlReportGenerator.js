@@ -45,13 +45,23 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
   const ckdBadgeHtml = buildCkdBadge(data, patientMeta);
   const patientMetaLine = formatPatientMeta(patientMeta);
 
+  // 專案提醒列 — 只要對應 badge 亮起就顯示在標題下方(明顯可見,不必滑鼠
+  // 移上去)。申報/收案的行政要件在收案當下最容易漏,直接寫在版面上。
+  const projectNotes = [];
+  if (acuBadgeHtml) projectNotes.push('複雜針灸：申報時主訴應有其診斷相關病情變化敘述');
+  if (asthmaBadgeHtml) projectNotes.push('氣喘專案：需有西醫氣喘診斷書才能收案');
+  if (cancerBadgeHtml) projectNotes.push('癌症專案：需在重大傷病卡有效期間、以重大傷病身分就醫才能收案');
+  const projectNotesHtml = projectNotes.length
+    ? `<div class="project-notes">${projectNotes.map(n => `<span class="project-note">⚠ ${esc(n)}</span>`).join('')}</div>`
+    : '';
+
   return buildFullHtml(patientName, patientId, dateStr, {
     diagnosisHtml, labPivotHtml, westMedHtml, otherWestMedHtml, chineseMedHtml,
     imagingHtml, allergyHtml, surgeryHtml, dischargeHtml,
     adultHealthHtml, cancerScreeningHtml, hbcvHtml, acupunctureProbeHtml,
     identityProbeHtml,
     acuBadgeHtml, cancerBadgeHtml, asthmaBadgeHtml, ckdBadgeHtml,
-    patientMetaLine
+    patientMetaLine, projectNotesHtml
   });
 }
 
@@ -1281,7 +1291,7 @@ function buildAcupunctureBadge(data) {
 
   const shown = hitCodes.slice(0, 12).join(', ');
   const more = hitCodes.length > 12 ? `… (+${hitCodes.length - 12})` : '';
-  const tooltip = `符合 ICD: ${shown}${more}`;
+  const tooltip = `符合 ICD: ${shown}${more}\n⚠ 申報複雜針時，主訴應有其診斷相關病情變化敘述`;
   return `<span class="acu-badge acu-${level}" title="${esc(tooltip)}">${label}</span>`;
 }
 
@@ -1369,7 +1379,7 @@ function buildCancerCareBadge(data) {
   const allHits = [...new Set(detected.flatMap(d => d.hits))];
   const shown = allHits.slice(0, 15).join(', ');
   const more = allHits.length > 15 ? `… (+${allHits.length - 15})` : '';
-  const tooltip = `符合中醫癌症加強照護方案：${names}\n命中 ICD: ${shown}${more}`;
+  const tooltip = `符合中醫癌症加強照護方案：${names}\n命中 ICD: ${shown}${more}\n⚠ 需在重大傷病卡有效期間、以重大傷病身分就醫才能收案`;
   return `<span class="cancer-badge" title="${esc(tooltip)}">🎗 癌症專案（${esc(names)}）</span>`;
 }
 
@@ -1405,7 +1415,7 @@ function buildAsthmaBadge(data, patientMeta = {}) {
   if (diff === null || diff >= 12 || codes.length === 0) return '';
   const shown = codes.slice(0, 8).join(', ');
   const more = codes.length > 8 ? `… (+${codes.length - 8})` : '';
-  const tooltip = `符合中醫氣喘專案：收案年−出生年=${diff} (<12)，曾下氣喘診斷\n命中 ICD: ${shown}${more}`;
+  const tooltip = `符合中醫氣喘專案：收案年−出生年=${diff} (<12)，曾下氣喘診斷\n命中 ICD: ${shown}${more}\n⚠ 需有西醫氣喘診斷書才能收案`;
   return `<span class="asthma-badge" title="${esc(tooltip)}">🫁 氣喘專案</span>`;
 }
 
@@ -2037,6 +2047,10 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .ckd-badge.ckd-eligible { background:#c62828; }
 .ckd-badge.ckd-watch    { background:#ed6c02; }
 
+/* 專案提醒列 — badge 亮起時直接顯示在標題下,不必 hover */
+.project-notes { background:#fff8e1; border-bottom:2px solid #f9a825; padding:7px 20px; display:flex; flex-wrap:wrap; gap:6px 22px; }
+.project-note { font-size:13px; font-weight:600; color:#7a5c00; }
+
 .layout { display:grid; grid-template-columns:1fr 1.5fr 1fr; gap:12px; padding:12px; min-height:calc(100vh - 60px); }
 
 .column { display:flex; flex-direction:column; gap:10px; }
@@ -2196,7 +2210,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
     <a onclick="window.print()">列印</a>
   </div>
 </div>
-
+${panels.projectNotesHtml || ''}
 <div class="layout">
   <!-- Left Column -->
   <div class="column">
