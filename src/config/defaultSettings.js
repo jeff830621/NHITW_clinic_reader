@@ -122,6 +122,6 @@ export const DEFAULT_SETTINGS = {
 
   sharedFolder: {
     enabled: false,
-    retentionDays: 7,
+    retentionDays: 40,
   },
 };

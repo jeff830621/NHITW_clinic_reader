@@ -350,14 +350,14 @@ async function autoExportToSharedFolder() {
         chrome.action.setBadgeBackgroundColor({ color: '#c62828' });
       } catch (_) {}
       html = buildOversizeStub(patientName, patientId, originalKB);
-      await writeHtml(filename, html, undefined, session, sharedFolder.retentionDays);
+      await writeHtml(filename, html, undefined, session, sharedFolder.retentionDays || 40);
       return;
     }
 
     // retentionDays rides along so the host cleans with the SETTINGS value —
     // the 設定頁「資料保留天數」 knob used to be dead (host only ever read its
     // own config.json, hardcoded to 7 by install.bat).
-    await writeHtml(filename, html, undefined, session, sharedFolder.retentionDays);
+    await writeHtml(filename, html, undefined, session, sharedFolder.retentionDays || 40);
     _lastExportFingerprint = fingerprint;
     try { chrome.storage.session.set({ lastExportFingerprint: fingerprint }); } catch (_) {}
     console.log(`[NHITW Clinic] HTML report saved: ${session}/${filename}`);

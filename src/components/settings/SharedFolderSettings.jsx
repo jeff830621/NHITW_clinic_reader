@@ -10,7 +10,7 @@ import ErrorIcon from '@mui/icons-material/Error';
 export default function SharedFolderSettings() {
   const [settings, setSettings] = useState({
     enabled: false,
-    retentionDays: 7,
+    retentionDays: 40,
   });
   const [hostStatus, setHostStatus] = useState(null);
   const [saved, setSaved] = useState(false);
@@ -74,7 +74,7 @@ export default function SharedFolderSettings() {
           <TextField
             type="number"
             value={settings.retentionDays}
-            onChange={(e) => handleChange('retentionDays', parseInt(e.target.value) || 7)}
+            onChange={(e) => handleChange('retentionDays', parseInt(e.target.value) || 40)}
             size="small"
             inputProps={{ min: 1, max: 90 }}
             sx={{ width: 220 }}
