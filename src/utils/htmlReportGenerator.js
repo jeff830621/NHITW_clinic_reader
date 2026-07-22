@@ -47,19 +47,21 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
   const obstBadgeHtml = buildObstetricBadge(data);
   const patientMetaLine = formatPatientMeta(patientMeta);
 
-  // 專案提醒列 — 只要對應 badge 亮起就顯示在標題下方(明顯可見,不必滑鼠
-  // 移上去)。申報/收案的行政要件在收案當下最容易漏,直接寫在版面上。
-  const projectNotes = [];
-  if (acuBadgeHtml) projectNotes.push('複雜針灸：申報時主訴應有其診斷相關病情變化敘述');
-  if (asthmaBadgeHtml) projectNotes.push('氣喘專案：需有西醫氣喘診斷書才能收案');
-  if (cancerBadgeHtml) projectNotes.push('癌症專案：需在重大傷病卡有效期間、以重大傷病身分就醫才能收案');
-  const projectNotesHtml = projectNotes.length
-    ? `<div class="project-notes">${projectNotes.map(n => `<span class="project-note">⚠ ${esc(n)}</span>`).join('')}</div>`
-    : '';
-
   // 中藥餘藥晶片 — 面板預設收合,標題必須自帶提示才「鮮豔可見」。
   const cmLeft = cmMaxDaysLeft(data.chinesemedData?.rObject);
   const cmLeftChipHtml = cmLeft > 0 ? ` <span class="cm-left">💊 餘${cmLeft}天</span>` : '';
+
+  // 專案提醒列 — 只要對應 badge/晶片亮起就顯示在標題下方(明顯可見,不必
+  // 滑鼠移上去)。申報/收案的行政要件在收案當下最容易漏,直接寫在版面上。
+  const projectNotes = [];
+  if (acuBadgeHtml) projectNotes.push('⚠ 複雜針灸：申報時主訴應有其診斷相關病情變化敘述');
+  if (asthmaBadgeHtml) projectNotes.push('⚠ 氣喘專案：需有西醫氣喘診斷書才能收案');
+  if (cancerBadgeHtml) projectNotes.push('⚠ 癌症專案：需在重大傷病卡有效期間、以重大傷病身分就醫才能收案');
+  if (obstBadgeHtml) projectNotes.push('🤰 孕產專案：病患近一年曾於西醫院所看過孕產相關問題，可依患者目前是否尚有其需求，評估是否可收孕產專案');
+  if (cmLeft > 0) projectNotes.push('💊 餘藥提醒：病患尚有中藥處方未服用完畢，建議參酌前次處方，衡量是否要提早開藥');
+  const projectNotesHtml = projectNotes.length
+    ? `<div class="project-notes">${projectNotes.map(n => `<span class="project-note">${esc(n)}</span>`).join('')}</div>`
+    : '';
 
   return buildFullHtml(patientName, patientId, dateStr, {
     diagnosisHtml, labPivotHtml, westMedHtml, otherWestMedHtml, chineseMedHtml,
