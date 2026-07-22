@@ -13,8 +13,9 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
   // highlight the same codes the badges fired on.
   const acuMatchedCodes = getMatchedAcuCodes(data);
   const cancerMatchedCodes = getMatchedCancerCodes(data);
+  const obstMatchedCodes = getMatchedObstetricCodes(data);
   const asthmaMatchedCodes = getMatchedAsthmaCodes(data, patientMeta);
-  const highlightSets = { acu: acuMatchedCodes, cancer: cancerMatchedCodes, asthma: asthmaMatchedCodes };
+  const highlightSets = { acu: acuMatchedCodes, cancer: cancerMatchedCodes, asthma: asthmaMatchedCodes, obst: obstMatchedCodes };
 
   // Build each panel
   const diagnosisHtml = buildDiagnosisPanel(data, highlightSets);
@@ -43,6 +44,7 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
   const cancerBadgeHtml = buildCancerCareBadge(data);
   const asthmaBadgeHtml = buildAsthmaBadge(data, patientMeta);
   const ckdBadgeHtml = buildCkdBadge(data, patientMeta);
+  const obstBadgeHtml = buildObstetricBadge(data);
   const patientMetaLine = formatPatientMeta(patientMeta);
 
   // 專案提醒列 — 只要對應 badge 亮起就顯示在標題下方(明顯可見,不必滑鼠
@@ -64,7 +66,7 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
     imagingHtml, allergyHtml, surgeryHtml, dischargeHtml,
     adultHealthHtml, cancerScreeningHtml, hbcvHtml, acupunctureProbeHtml,
     identityProbeHtml,
-    acuBadgeHtml, cancerBadgeHtml, asthmaBadgeHtml, ckdBadgeHtml,
+    acuBadgeHtml, cancerBadgeHtml, asthmaBadgeHtml, ckdBadgeHtml, obstBadgeHtml,
     patientMetaLine, projectNotesHtml, cmLeftChipHtml
   });
 }
@@ -176,12 +178,14 @@ function buildDiagnosisPanel(data, highlightSets = {}) {
   const acuSet = highlightSets.acu || new Set();
   const cancerSet = highlightSets.cancer || new Set();
   const asthmaSet = highlightSets.asthma || new Set();
+  const obstSet = highlightSets.obst || new Set();
   const matchClass = (code) => {
     const c = String(code || '').trim();
     const cls = [];
     if (acuSet.has(c)) cls.push('diag-acu-match');
     if (cancerSet.has(c)) cls.push('diag-cancer-match');
     if (asthmaSet.has(c)) cls.push('diag-asthma-match');
+    if (obstSet.has(c)) cls.push('diag-obst-match');
     return cls.join(' ');
   };
 
@@ -1272,6 +1276,34 @@ function getMatchedCancerCodes(data) {
   return set;
 }
 
+// --- 孕產專案 ---
+// 過往診斷命中任一即提示(依診所圈選之範圍):
+//   N96 習慣性流產 / N97 女性不孕症 / N98 人工受孕相關併發症
+//   N46 男性不孕症(含 N460 無精症、N461 寡精症、N468/N469)
+//   O00–O48 妊娠相關:流產後果之妊娠、高危險妊娠監測、妊娠高血壓蛋白尿浮腫、
+//            與妊娠相關之母體異常、胎兒/羊膜腔/分娩問題之母體照護
+//   (O60 以後之產程/分娩/產褥期不在圈選範圍,不列入)
+const OBSTETRIC_PREFIXES = ['N96', 'N97', 'N98', 'N46'];
+function getMatchedObstetricCodes(data) {
+  const set = new Set();
+  for (const c of collectAllIcdCodes(data)) {
+    if (OBSTETRIC_PREFIXES.some(p => codeMatchesPrefix(c, p))) { set.add(c); continue; }
+    const m = /^O(\d{2})/.exec(String(c).replace(/\./g, '').toUpperCase().trim());
+    if (m && parseInt(m[1], 10) <= 48) set.add(c);
+  }
+  return set;
+}
+
+function buildObstetricBadge(data) {
+  const codes = [...getMatchedObstetricCodes(data)];
+  console.log('[NHITW Clinic] Obstetric matches:', codes);
+  if (codes.length === 0) return '';
+  const shown = codes.slice(0, 12).join(', ');
+  const more = codes.length > 12 ? `… (+${codes.length - 12})` : '';
+  const tooltip = `孕產/不孕相關診斷:${shown}${more}\n範圍:N96 習慣性流產、N97 女性不孕、N98 人工受孕併發症、N46 男性不孕、O00–O48 妊娠相關`;
+  return `<span class="obst-badge" title="${esc(tooltip)}">🤰 孕產專案</span>`;
+}
+
 function buildAcupunctureBadge(data) {
   const codes = collectAllIcdCodes(data);
   const matches = classifyAcupunctureCodes(codes);
@@ -2069,6 +2101,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .acu-badge.acu-moderate { background:#f57c00; color:#fff; }
 .cancer-badge { display:inline-block; margin-left:8px; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; vertical-align:middle; cursor:help; background:#7b1fa2; color:#fff; }
 .asthma-badge { display:inline-block; margin-left:8px; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; vertical-align:middle; cursor:help; background:#0288d1; color:#fff; }
+.obst-badge { display:inline-block; margin-left:8px; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; vertical-align:middle; cursor:help; background:#ad1457; color:#fff; }
 .ckd-badge { display:inline-block; margin-left:8px; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; vertical-align:middle; cursor:help; color:#fff; }
 .ckd-badge.ckd-eligible { background:#c62828; }
 .ckd-badge.ckd-watch    { background:#ed6c02; }
@@ -2152,6 +2185,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .diag-item.diag-cancer-match { background:linear-gradient(90deg, rgba(123,31,162,0.15), transparent); border-left:3px solid #7b1fa2; padding-left:5px; }
 .diag-item.diag-acu-match.diag-cancer-match { border-left:3px solid #d32f2f; background:linear-gradient(90deg, rgba(245,124,0,0.18), rgba(123,31,162,0.15)); }
 .diag-item.diag-asthma-match { background:linear-gradient(90deg, rgba(2,136,209,0.18), transparent); border-left:3px solid #0288d1; padding-left:5px; }
+.diag-item.diag-obst-match { background:linear-gradient(90deg, rgba(173,20,87,0.15), transparent); border-left:3px solid #ad1457; padding-left:5px; }
 
 /* Medications */
 .med-group-header { font-size:12px; font-weight:600; color:#1565c0; background:#e3f2fd; padding:5px 10px; margin-top:6px; border-radius:4px; }
@@ -2230,7 +2264,7 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 
 <div class="header">
   <div>
-    <h1>${esc(name)}${panels.acuBadgeHtml || ''}${panels.cancerBadgeHtml || ''}${panels.asthmaBadgeHtml || ''}${panels.ckdBadgeHtml || ''}</h1>
+    <h1>${esc(name)}${panels.acuBadgeHtml || ''}${panels.cancerBadgeHtml || ''}${panels.asthmaBadgeHtml || ''}${panels.ckdBadgeHtml || ''}${panels.obstBadgeHtml || ''}</h1>
     <div class="meta">${esc(id)}${panels.patientMetaLine ? ' ｜ ' + esc(panels.patientMetaLine) : ''} ｜ ${esc(dateStr)}</div>
   </div>
   <div class="actions">
