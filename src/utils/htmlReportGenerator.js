@@ -55,13 +55,17 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
     ? `<div class="project-notes">${projectNotes.map(n => `<span class="project-note">⚠ ${esc(n)}</span>`).join('')}</div>`
     : '';
 
+  // 中藥餘藥晶片 — 面板預設收合,標題必須自帶提示才「鮮豔可見」。
+  const cmLeft = cmMaxDaysLeft(data.chinesemedData?.rObject);
+  const cmLeftChipHtml = cmLeft > 0 ? ` <span class="cm-left">💊 餘${cmLeft}天</span>` : '';
+
   return buildFullHtml(patientName, patientId, dateStr, {
     diagnosisHtml, labPivotHtml, westMedHtml, otherWestMedHtml, chineseMedHtml,
     imagingHtml, allergyHtml, surgeryHtml, dischargeHtml,
     adultHealthHtml, cancerScreeningHtml, hbcvHtml, acupunctureProbeHtml,
     identityProbeHtml,
     acuBadgeHtml, cancerBadgeHtml, asthmaBadgeHtml, ckdBadgeHtml,
-    patientMetaLine, projectNotesHtml
+    patientMetaLine, projectNotesHtml, cmLeftChipHtml
   });
 }
 
@@ -1751,9 +1755,28 @@ function buildOtherWestMedPanel(items, trackingDays) {
 }
 
 // --- Chinese Med Panel ---
+// 中藥餘藥天數:就診日服第 1 天,餘藥 = func_date + day − 今天(0 = 已服完)。
+function cmDaysLeft(dateStr, day) {
+  const d = parseInt(day, 10);
+  if (!dateStr || !isFinite(d) || d <= 0) return 0;
+  const start = new Date(dateStr);
+  if (isNaN(start.getTime())) return 0;
+  const left = Math.ceil((start.getTime() + d * 86400000 - Date.now()) / 86400000);
+  return left > 0 ? left : 0;
+}
+// 全部中藥就診中最大的餘藥天數 — 掛在面板標題上,收合狀態也看得到。
+function cmMaxDaysLeft(items) {
+  if (!Array.isArray(items)) return 0;
+  let max = 0;
+  for (const m of items) {
+    const left = cmDaysLeft(parseDate(m.func_date || ''), m.day);
+    if (left > max) max = left;
+  }
+  return max;
+}
+
 function buildChineseMedPanel(items) {
   if (!items || items.length === 0) return '<p class="empty">無中藥紀錄</p>';
-
   const groups = {};
   for (const m of items) {
     const date = parseDate(m.func_date || '');
@@ -1767,6 +1790,9 @@ function buildChineseMedPanel(items) {
   for (const g of Object.values(groups)) {
     html += `<div class="med-group-header">${esc(shortDate(g.date))} ${esc(g.hosp)}`;
     if (g.icd) html += ` <span class="diag-code">${esc(g.icd)}</span>`;
+    // 餘藥天數 — 鮮豔標示這次就診的藥還剩幾天(取該次處方中最大天數)
+    const groupLeft = Math.max(0, ...g.meds.map(m => cmDaysLeft(g.date, m.day)));
+    if (groupLeft > 0) html += ` <span class="cm-left">💊 餘${groupLeft}天</span>`;
     html += '</div>';
     // Dedupe within a visit: NHI sometimes returns the same prescription
     // twice (correction + original 申報, batch-packet splits, etc.) which
@@ -2051,6 +2077,9 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .project-notes { background:#fff8e1; border-bottom:2px solid #f9a825; padding:7px 20px; display:flex; flex-wrap:wrap; gap:6px 22px; }
 .project-note { font-size:13px; font-weight:600; color:#7a5c00; }
 
+/* 中藥餘藥天數 — 鮮豔晶片,收合的面板標題上也會出現 */
+.cm-left { display:inline-block; margin-left:6px; padding:1px 9px; border-radius:10px; background:#e91e63; color:#fff; font-size:11px; font-weight:700; vertical-align:middle; }
+
 .layout { display:grid; grid-template-columns:1fr 1.5fr 1fr; gap:12px; padding:12px; min-height:calc(100vh - 60px); }
 
 .column { display:flex; flex-direction:column; gap:10px; }
@@ -2227,7 +2256,7 @@ ${panels.projectNotesHtml || ''}
       <div class="panel-body collapsed">${panels.otherWestMedHtml}</div>
     </div>
     <div class="panel">
-      <div class="panel-title collapsed" onclick="togglePanel(this)">中藥用藥</div>
+      <div class="panel-title collapsed" onclick="togglePanel(this)">中藥用藥${panels.cmLeftChipHtml || ''}</div>
       <div class="panel-body collapsed">${panels.chineseMedHtml}</div>
     </div>
   </div>
