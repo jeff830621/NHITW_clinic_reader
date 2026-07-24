@@ -1086,6 +1086,20 @@ function checkAbnormal(value, reference, orderCode) {
 // parseReferenceRange misses — it only knows "[70][100]" and "[7~25]"), then
 // falls back to the robust parser for [min][max], <X, ≧X, etc.
 function labRefRange(reference, orderCode, isFemale) {
+  const range = labRefRangeRaw(reference, orderCode, isFemale);
+  // Reversed bounds — some labs write the UPPER bound first ('[130][0]' for
+  // LDL, meaning <130). Parsed verbatim that became min=130/max=0: the
+  // tooltip showed '130-0' and every value >0 got red-flagged high (梁信盛
+  // 2026-07-24: LDL 69 marked high). Swap so display and direction both read
+  // the range the lab actually meant.
+  if (range && range.min != null && range.max != null &&
+      isFinite(range.min) && isFinite(range.max) && range.min > range.max) {
+    return { ...range, min: range.max, max: range.min };
+  }
+  return range;
+}
+
+function labRefRangeRaw(reference, orderCode, isFemale) {
   // Sex-specific ranges first — only fires when both M+F present and sex known.
   const sexed = parseSexSpecificRange(reference, isFemale);
   if (sexed) return sexed;
