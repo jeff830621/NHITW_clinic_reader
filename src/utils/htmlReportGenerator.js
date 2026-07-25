@@ -291,7 +291,7 @@ const LAB_ALIAS = [
   ['Glucose', ['glucose', 'sugar', 'ac sugar', 'blood sugar', '葡萄糖', '血糖', '飯前血糖', '空腹血糖', '禁食血糖', '禁食血糖(ac)', '血液及體液葡萄糖', '飯前血糖(ac)', '飯前葡萄糖', '飯前葡萄糖(ac)', 'glucose ac', 'glucose (ac)', 'glucose(ac)', 'glu.(ac)', 'glu (ac)', 'glu(ac)', 'glu ac', 'ac glucose']],
   ['Glucose PC', ['glucose pc', 'glucose (pc)', 'glucose(pc)', 'glu.(pc)', 'glu (pc)', 'glu(pc)', 'glu pc', 'pc sugar', 'pc glucose', 'glucose post cibum', 'glucose-pc', 'glucose-post cibum', '飯後血糖', '餐後血糖', '飯後葡萄糖', '飯後葡萄糖(pc)', 'glucose-post cibum, pc']],
   ['HbA1c', ['hba1c', 'hb-a1c', 'hb a1c', 'a1c', 'hemoglobin a1c', '糖化血色素', '糖化血紅素', '醣化血色素', '醣化血紅素']],
-  ['Microalbumin', ['microalbumin', 'micro albumin', 'micro-albumin', '微量白蛋白', '尿微量白蛋白', 'urine microalbumin', '微白蛋白', '微白蛋白(免疫比濁法)', '尿微白蛋白']],
+  ['Microalbumin', ['microalbumin', 'microalb', 'micro albumin', 'micro-albumin', '微量白蛋白', '尿微量白蛋白', 'urine microalbumin', '微白蛋白', '微白蛋白(免疫比濁法)', '尿微白蛋白']],
   ['Urine creatinine', ['urine creatinine', 'urine cr', 'u-cr', 'u cr', '尿肌酸酐', '尿肌酐', '肌酸酐,尿', '肌酐,尿', '肌酐、尿']],
   // Ratios — kept un-suffixed by canonicalLabName so the CKD proteinuria
   // check matches them exactly.
@@ -307,8 +307,8 @@ const LAB_ALIAS = [
   ['Na', ['na', 'sodium', '鈉']],
   ['K', ['k', 'potassium', '鉀']],
   ['Cl', ['cl', 'chloride', '氯']],
-  ['GOT', ['got', 'ast', 'sgot', 's.g.o.t', 's.g.o.t (ast)', 's.g.o.t. (ast)', 's-got', 's-got/ast', 'ast/got', 'got/ast', 'ast (got)', 'got (ast)', '天門冬胺酸轉胺酶', '天門冬胺酸胺基轉移酶', '血清麩胺酸苯醋酸轉氨基', '血清麩胺酸苯醋酸轉氨基酶', '麩胺酸苯醋酸轉氨基', '麩胺酸苯醋酸轉氨基酶']],
-  ['GPT', ['gpt', 'alt', 'sgpt', 's.g.p.t', 's.g.p.t (alt)', 's.g.p.t. (alt)', 's-gpt', 's-gpt/alt', 'alt/gpt', 'gpt/alt', 'alt (gpt)', 'gpt (alt)', '丙胺酸轉胺酶', '丙胺酸胺基轉移酶', '血清麩胺酸丙酮酸轉氨基', '血清麩胺酸丙酮酸轉氨基酶', '麩胺酸丙酮酸轉氨基', '麩胺酸丙酮酸轉氨基酶']],
+  ['GOT', ['got', 'ast', 'sgot', 'ast/sgot', 'sgot/ast', 's.g.o.t', 's.g.o.t (ast)', 's.g.o.t. (ast)', 's-got', 's-got/ast', 'ast/got', 'got/ast', 'ast (got)', 'got (ast)', '天門冬胺酸轉胺酶', '天門冬胺酸胺基轉移酶', '血清麩胺酸苯醋酸轉氨基', '血清麩胺酸苯醋酸轉氨基酶', '麩胺酸苯醋酸轉氨基', '麩胺酸苯醋酸轉氨基酶']],
+  ['GPT', ['gpt', 'alt', 'sgpt', 'alt/sgpt', 'sgpt/alt', 's.g.p.t', 's.g.p.t (alt)', 's.g.p.t. (alt)', 's-gpt', 's-gpt/alt', 'alt/gpt', 'gpt/alt', 'alt (gpt)', 'gpt (alt)', '丙胺酸轉胺酶', '丙胺酸胺基轉移酶', '血清麩胺酸丙酮酸轉氨基', '血清麩胺酸丙酮酸轉氨基酶', '麩胺酸丙酮酸轉氨基', '麩胺酸丙酮酸轉氨基酶']],
   ['U.A', ['u.a', 'ua', 'uric acid', 'uric acid(blood)', '尿酸', '血清尿酸', '血液尿酸']],
   ['GFR', ['gfr', 'egfr', 'e-gfr', 'estimated gfr', 'estimated-gfr', 'egfr-ckd-epi', 'egfr ckd-epi', 'egfr (ckd-epi)', 'egfr-mdrd', 'egfr (mdrd)', '腎絲球過濾率', '腎絲球過濾率(新)', '腎絲球過濾率;(egfr-ckd-epi)', '腎絲球過濾率(新);(egfr-ckd-epi)', '腎絲球過濾率(egfr)']],
   // Thyroid — long Chinese names dominate the leftmost sticky column,
@@ -328,8 +328,8 @@ const LAB_ALIAS = [
   // 膽固醇)', 'HDL' vs 'HDL-cholesterol' vs '高密度脂蛋白膽固醇'…).
   ['Chol', ['chol', 'cholesterol', 'total cholesterol', 't-cholesterol', 'total-cholesterol', 'tc', 'cho', 't-cho', 't-chol', '膽固醇', '總膽固醇', 'cholesterol(膽固醇)']],
   ['TG', ['tg', 'tg, triglycerides', 'triglyceride', 'triglycerides', 't.g.', '三酸甘油脂', '三酸甘油酯', 'tg (三酸甘油脂)']],
-  ['HDL', ['hdl', 'hdl-cholesterol', 'hdl cholesterol', 'hdl-c', 'hdl chol', 'hdl-cholesterol (高密度脂蛋白膽固醇)', '高密度脂蛋白膽固醇', '高密度脂蛋白', 'hdl(高密度脂蛋白)']],
-  ['LDL', ['ldl', 'ldl-cholesterol', 'ldl cholesterol', 'ldl-c', 'ldl chol', 'ldl-cholesterol (低密度脂蛋白膽固醇)', '低密度脂蛋白膽固醇', '低密度脂蛋白', 'ldl(低密度脂蛋白)']],
+  ['HDL', ['hdl', 'hdl-cho', '高密度膽固醇', 'hdl-cholesterol', 'hdl cholesterol', 'hdl-c', 'hdl chol', 'hdl-cholesterol (高密度脂蛋白膽固醇)', '高密度脂蛋白膽固醇', '高密度脂蛋白', 'hdl(高密度脂蛋白)']],
+  ['LDL', ['ldl', 'ldl-cho', '低密度膽固醇', 'ldl-cholesterol', 'ldl cholesterol', 'ldl-c', 'ldl chol', 'ldl-cholesterol (低密度脂蛋白膽固醇)', '低密度脂蛋白膽固醇', '低密度脂蛋白', 'ldl(低密度脂蛋白)']],
   // Serology / tumor markers — long Chinese names dominate the sticky item
   // column; map to the short form a clinician reads at a glance.
   ['AFP', ['afp', 'alpha-fetoprotein', 'α-fetoprotein', 'a-fetoprotein', 'α-胎兒蛋白檢驗', 'α-胎兒蛋白', 'a-胎兒蛋白檢驗', '甲型胎兒蛋白', '甲種胎兒蛋白', '胎兒蛋白']],
@@ -540,8 +540,22 @@ function canonicalLabName(l) {
       // Strip parens AND any trailing/leading separator detritus (空格, 半形/全形
       // 分號逗號頓號冒號) so e.g. '腎絲球過濾率(新) ;(eGFR-CKD-EPI)' → after
       // paren-strip → '腎絲球過濾率 ;' → matches the alias '腎絲球過濾率'.
-      const noParen = norm.replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '').replace(/^[\s;,，、:：]+|[\s;,，、:：]+$/g, '').trim();
+      const strip = (t) => t.replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '').replace(/^[\s;,，、:：]+|[\s;,，、:：]+$/g, '').trim();
+      const noParen = strip(norm);
       if (noParen) canon = LAB_ALIAS_LOOKUP.get(noParen);
+      // Mixed-language names ('Cholesterol 膽固醇', 'ALT/SGPT 肝酵素',
+      // 'Glucose AC飯前血糖(NaF)', 'Microalb 微白蛋白 (Urine)') — full-string
+      // lookup can never match, so try the Latin half then the Chinese half
+      // separately. Runs under the same analyte-qualifier guard above, so
+      // 'T4(Free) 游離甲狀腺素'-style names still refuse to merge into T4.
+      if (!canon) {
+        const latinOnly = strip(norm.replace(/[一-鿿]/g, ''));
+        if (latinOnly && latinOnly !== noParen) canon = LAB_ALIAS_LOOKUP.get(latinOnly);
+      }
+      if (!canon) {
+        const cjkOnly = strip(norm.replace(/[^一-鿿()（）[\]]/g, ''));
+        if (cjkOnly && cjkOnly !== noParen) canon = LAB_ALIAS_LOOKUP.get(cjkOnly);
+      }
     }
   }
   // Fallback: 衛生所 / 區域醫院 sometimes ship the raw NHI order code as
