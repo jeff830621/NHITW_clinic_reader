@@ -16,14 +16,13 @@
 
 裝好本工具後：櫃檯照常刷卡查雲端 → 報告自動出現在共享資料夾 → 診間雙擊 HTML 就看到病人的診斷、用藥、檢驗（含異常標紅、CKD/氣喘/針灸收案提示）、影像、過敏、四癌篩檢等完整資料。
 
-## 📥 下載（兩個檔案都要）
+## 📥 下載（一個檔案搞定）
 
-| 檔案 | 裝在哪裡 | 下載連結 |
-|---|---|---|
-| **① 擴充套件**（Chrome / Edge） | 櫃檯（讀卡查雲端）的電腦 | [下載 NHITW_clinic_reader_latest.zip](https://github.com/jeff830621/NHITW_clinic_reader/raw/release/releases/NHITW_clinic_reader_latest.zip) |
-| **② 共享資料夾主機**（Native Host） | 同一台櫃檯電腦 | [下載 NHITW_clinic_reader_host_latest.zip](https://github.com/jeff830621/NHITW_clinic_reader/raw/release/releases/NHITW_clinic_reader_host_latest.zip) |
+**[⬇ 下載完整安裝包 NHITW_clinic_reader_latest.zip](https://github.com/jeff830621/NHITW_clinic_reader/raw/release/releases/NHITW_clinic_reader_latest.zip)**
 
-> 診間電腦**什麼都不用下載**。
+一個 zip 內含擴充套件（解壓後的資料夾本身）與共享資料夾主機（`native-host` 子資料夾），裝在櫃檯（讀卡查雲端）的電腦。
+
+> 診間電腦**什麼都不用下載**。（僅需更新主機時可單獨下載 [host 安裝包](https://github.com/jeff830621/NHITW_clinic_reader/raw/release/releases/NHITW_clinic_reader_host_latest.zip)）
 
 ## 🚀 安裝步驟（約 10 分鐘）
 
@@ -31,17 +30,17 @@
 
 ### 步驟 1：安裝擴充套件（櫃檯電腦）
 
-1. 下載上面的 **①**，解壓縮到一個**固定位置**（例如 `C:\nhitw-extension`）— 之後這個資料夾不能刪
+1. 下載上面的完整安裝包，解壓縮到一個**固定位置**（例如 `C:\nhitw-extension`）— 之後這個資料夾不能刪
 2. 打開 Chrome，網址列輸入 `chrome://extensions`（Edge 輸入 `edge://extensions`）
 3. 打開右上角的「**開發人員模式**」
-4. 點「**載入未封裝項目**」→ 選剛剛解壓縮的資料夾
+4. 點「**載入未封裝項目**」→ 選剛剛解壓縮的資料夾（`manifest.json` 所在的那層）
 5. 清單出現「NHITW 診間報告產生器」就完成了
 
 > 不用抄擴充套件 ID —— 所有院所載入後的 ID 都相同，下一步的安裝程式已內建。
 
 ### 步驟 2：安裝共享資料夾主機（同一台櫃檯電腦）
 
-1. 下載上面的 **②**，解壓縮
+1. 進入剛剛解壓的資料夾裡的 **`native-host`** 子資料夾
 2. 雙擊 **`install.bat`**
 3. 黑色視窗會問兩個問題：
    - `Enter shared folder path`：**輸入你們院所的共享資料夾路徑**（例如 `\\你的伺服器\共享\Chart`）後按 Enter
@@ -61,12 +60,13 @@
 - 檔名格式：`王小明_20260708_1030.html`
 - 建議把共享資料夾捷徑釘在診間電腦桌面
 
-> 報告檔案預設 **7 天後自動清除** —— 天數在擴充套件的設定頁「**資料保留天數**」調整（1–90 天）。
+> 報告檔案預設 **40 天後自動清除** —— 天數在擴充套件的設定頁「**資料保留天數**」調整（1–90 天）。
 
 ## 🔄 更新版本
 
-- **擴充套件**：下載新的 ①，解壓縮**覆蓋原本的資料夾**，回到 `chrome://extensions` 按該套件的「重新整理 ↻」圖示
-- **主機**：很少更新；若有，下載新的 ② 重跑一次 `install.bat` 即可
+1. 下載新的完整安裝包，解壓縮**覆蓋原本的資料夾**
+2. 回到 `chrome://extensions` 按該套件的「重新整理 ↻」圖示
+3. 若通知有提到「主機更新」，再進 `native-host` 重跑一次 `install.bat`（很少發生）
 
 ## ❓ 常見問題
 
