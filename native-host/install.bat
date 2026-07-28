@@ -26,7 +26,7 @@ echo [3/5] Writing config...
 (
 echo {
 echo   "sharedFolderPath": "!SHARED_FOLDER:\=\\!",
-echo   "retentionDays": 7
+echo   "retentionDays": 40
 echo }
 ) > "%INSTALL_DIR%\config.json"
 

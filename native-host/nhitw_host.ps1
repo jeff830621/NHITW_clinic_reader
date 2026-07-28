@@ -8,11 +8,11 @@ $configPath = Join-Path $scriptDir "config.json"
 if (Test-Path $configPath) {
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
 } else {
-    $config = @{ sharedFolderPath = "C:\nhitw-data"; retentionDays = 7 }
+    $config = @{ sharedFolderPath = "C:\nhitw-data"; retentionDays = 40 }
 }
 
 $sharedFolder = $config.sharedFolderPath
-$retentionDays = if ($config.retentionDays) { $config.retentionDays } else { 7 }
+$retentionDays = if ($config.retentionDays) { $config.retentionDays } else { 40 }
 
 # --- Native Messaging I/O ---
 function Read-Message {
