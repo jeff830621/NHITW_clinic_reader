@@ -300,8 +300,8 @@ const LAB_ALIAS = [
   ['Glucose', ['glucose', 'sugar', 'ac sugar', 'blood sugar', '葡萄糖', '血糖', '飯前血糖', '空腹血糖', '禁食血糖', '禁食血糖(ac)', '血液及體液葡萄糖', '飯前血糖(ac)', '飯前葡萄糖', '飯前葡萄糖(ac)', 'glucose ac', 'glucose (ac)', 'glucose(ac)', 'glu.(ac)', 'glu (ac)', 'glu(ac)', 'glu ac', 'ac glucose']],
   ['Glucose PC', ['glucose pc', 'glucose (pc)', 'glucose(pc)', 'glu.(pc)', 'glu (pc)', 'glu(pc)', 'glu pc', 'pc sugar', 'pc glucose', 'glucose post cibum', 'glucose-pc', 'glucose-post cibum', '飯後血糖', '餐後血糖', '飯後葡萄糖', '飯後葡萄糖(pc)', 'glucose-post cibum, pc']],
   ['HbA1c', ['hba1c', 'hb-a1c', 'hb a1c', 'a1c', 'hemoglobin a1c', '糖化血色素', '糖化血紅素', '醣化血色素', '醣化血紅素']],
-  ['Microalbumin', ['microalbumin', 'microalb', 'micro albumin', 'micro-albumin', '微量白蛋白', '尿微量白蛋白', 'urine microalbumin', '微白蛋白', '微白蛋白(免疫比濁法)', '尿微白蛋白']],
-  ['Urine creatinine', ['urine creatinine', 'urine cr', 'u-cr', 'u cr', '尿肌酸酐', '尿肌酐', '肌酸酐,尿', '肌酐,尿', '肌酐、尿']],
+  ['Microalbumin', ['microalbumin', 'microalb', '微小白蛋白', 'micro albumin', 'micro-albumin', '微量白蛋白', '尿微量白蛋白', 'urine microalbumin', '微白蛋白', '微白蛋白(免疫比濁法)', '尿微白蛋白']],
+  ['Urine creatinine', ['urine creatinine', 'urine cr', 'u-cr', 'u cr', 'u-cre', 'ucre', '尿液肌酸酐', '尿肌酸酐', '尿肌酐', '肌酸酐,尿', '肌酐,尿', '肌酐、尿']],
   // Ratios — kept un-suffixed by canonicalLabName so the CKD proteinuria
   // check matches them exactly.
   ['UPCR', ['upcr', 'u-pcr', 'upc', 'urine protein/creatinine ratio', 'urine protein creatinine ratio', 'protein/creatinine ratio', '尿蛋白/肌酸酐比值', '尿蛋白肌酸酐比值', '尿蛋白/肌酐比值', '蛋白/肌酸酐比值', '尿液蛋白質/肌酸酐比值']],
@@ -358,6 +358,8 @@ function normalizeLabName(s) {
                                                //   (肌酸酐‧血 → 肌酸酐、血 = serum Cr)
     .replace(/[－–—]/g, '-')                   // fullwidth/EN/EM dashes → ascii hyphen
                                                //   (HDL－cholesterol vs HDL-cholesterol)
+    .replace(/([一-鿿])\s+(?=[一-鿿])/g, '$1') // drop spaces BETWEEN CJK
+                                               //   (肌 酸 酐 → 肌酸酐, 尿 蛋 白 → 尿蛋白)
     .replace(/\s*-\s*/g, '-')                  // collapse spaces around hyphen
                                                //   (α - 胎兒蛋白 → α-胎兒蛋白)
     .replace(/([一-鿿])-([一-鿿])/g, '$1$2') // drop hyphen BETWEEN CJK
@@ -476,6 +478,7 @@ function appendUrineMark(name) {
   if (!name) return name;
   if (/[(（]\s*尿\s*[)）]/.test(name)) return name;
   if (URINE_HINT.test(name)) return name;
+  if (/^尿/.test(name)) return name; // 尿蛋白/尿糖/尿膽紅素… 名字自帶尿,別再貼(尿)
   return `${name}(尿)`;
 }
 
@@ -567,6 +570,30 @@ function canonicalLabName(l) {
       }
     }
   }
+  // LAST-RESORT, once-and-for-all: NHI order codes are nationally uniform
+  // even when every lab invents its own name. When ALL name lookups fail,
+  // map single-analyte codes straight to their canonical name — no more
+  // per-lab alias whack-a-mole. Multi-analyte codes are guarded: 09015C
+  // carries Cr+GFR (map to Cr only when the name isn't GFR-ish; 劉志明
+  // regression), 09016C carries urine Cr + the UACR ratio (map only when
+  // the name isn't a ratio). Panel codes (06012C/06013C, 08011C CBC) are
+  // deliberately absent — their sub-items can't be told apart by code.
+  if (!canon && orderCode) {
+    const SINGLE_ANALYTE_CODE = {
+      '09001C': 'Chol', '09004C': 'TG', '09043C': 'HDL', '09044C': 'LDL',
+      '09002C': 'BUN', '09005C': 'Glucose', '09140C': 'Glucose PC',
+      '09006C': 'HbA1c', '09021C': 'Na', '09022C': 'K', '09013C': 'U.A',
+      '09038C': 'Alb', '09025C': 'GOT', '09026C': 'GPT', '12111C': 'Microalbumin',
+    };
+    if (SINGLE_ANALYTE_CODE[orderCode]) {
+      canon = SINGLE_ANALYTE_CODE[orderCode];
+    } else if (orderCode === '09015C' && !/gfr|絲球|過濾/i.test(norm)) {
+      canon = 'Cr';
+    } else if (orderCode === '09016C' && !/比值|ratio|acr/i.test(norm)) {
+      canon = 'Urine creatinine';
+    }
+  }
+
   // Fallback: 衛生所 / 區域醫院 sometimes ship the raw NHI order code as
   // the assay_item_name (so we see '09005C' as a sibling of 'Glucose').
   // Translate the code only when rawName IS that bare code — otherwise we'd
@@ -602,7 +629,9 @@ function canonicalLabName(l) {
     return '尿糖';
   }
 
-  const baseName = canon || (rawName || orderCode || '?').trim();
+  // Unmatched names still get the CJK-space cleanup for display (肌 酸 酐 →
+  // 肌酸酐) — cosmetic only, casing untouched.
+  const baseName = canon || (rawName || orderCode || '?').replace(/([一-鿿])\s+(?=[一-鿿])/g, '$1').trim();
   // UPCR/UACR are ratios — inherently urine, never collide with a blood
   // version. Suffixing them '(尿)' broke the CKD proteinuria check, which
   // matches the exact canonical 'UPCR'/'UACR'. Return them bare.
