@@ -248,10 +248,19 @@ function buildDiagnosisPanel(data, highlightSets = {}) {
     // which rendered an ugly 'F329 F329'. Drop the name when it's empty or
     // just repeats the code.
     const nameStr = (d.name && d.name.trim() && d.name.trim() !== String(d.code).trim()) ? esc(d.name) : '';
+    // 次數是按鈕:點擊展開這個診斷的每次就醫(院所+日期),新→舊。visits
+    // 的 key 是 `date|hosp`,直接拆回來排序即可。
+    const visitList = [...d.visits].map(v => {
+      const i = v.indexOf('|');
+      return { date: v.slice(0, i), hosp: v.slice(i + 1) };
+    }).sort((a, b) => b.date.localeCompare(a.date));
+    const visitsHtml = visitList.map(v =>
+      `<div>${esc(v.date.replace(/-/g, '/'))} ${esc(v.hosp)}</div>`).join('');
     return `<div class="diag-item ${matchClass(d.code)}">`
       + `<div class="diag-line1">${typeTag}<span class="diag-code">${esc(d.code)}</span> ${nameStr}`
-      + `<span class="diag-count">${d.count}次</span></div>`
+      + `<span class="diag-count" onclick="toggleDiagVisits(this)" title="點擊顯示各次就醫的院所與日期">${d.count}次</span></div>`
       + `<div class="diag-line2">${esc(meta)}</div>`
+      + `<div class="diag-visits" style="display:none">${visitsHtml}</div>`
       + `</div>`;
   };
 
@@ -2164,7 +2173,10 @@ body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; background:#f0
 .diag-line1 { display:flex; align-items:center; gap:6px; }
 .diag-line2 { font-size:10px; color:#999; margin-top:1px; margin-left:2px; }
 .diag-code { background:#e8f5e9; color:#2e7d32; padding:1px 6px; border-radius:3px; font-size:10px; font-weight:600; flex-shrink:0; }
-.diag-count { background:#e3f2fd; color:#1565c0; padding:0 5px; border-radius:8px; font-size:10px; font-weight:600; margin-left:auto; flex-shrink:0; }
+.diag-count { background:#e3f2fd; color:#1565c0; padding:0 5px; border-radius:8px; font-size:10px; font-weight:600; margin-left:auto; flex-shrink:0; cursor:pointer; user-select:none; }
+.diag-count:hover { background:#1565c0; color:#fff; }
+.diag-visits { font-size:10px; color:#777; margin:2px 0 2px 10px; border-left:2px solid #90caf9; padding-left:7px; }
+.diag-visits div { padding:1px 0; }
 .diag-meta { color:#999; font-size:10px; margin-left:auto; flex-shrink:0; }
 .diag-more { color:#999; font-size:11px; padding:4px 0; text-align:center; }
 .diag-more-toggle { color:#8a6d3b; font-size:11px; padding:5px 0; text-align:center; cursor:pointer; user-select:none; border-top:1px dashed #eee; }
@@ -2361,6 +2373,12 @@ function expandAll() {
 function collapseAll() {
   document.querySelectorAll('.panel-title').forEach(function(t) { t.classList.add('collapsed'); });
   document.querySelectorAll('.panel-body').forEach(function(b) { b.classList.add('collapsed'); });
+}
+function toggleDiagVisits(el) {
+  var item = el.closest('.diag-item');
+  var list = item ? item.querySelector('.diag-visits') : null;
+  if (!list) return;
+  list.style.display = list.style.display === 'none' ? 'block' : 'none';
 }
 function toggleDiagMore(btn) {
   var list = btn.nextElementSibling;
