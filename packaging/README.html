@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>NHITW 診間報告產生器 — 安裝與更新教學</title>
+<style>
+body { font-family:"Microsoft JhengHei","PingFang TC",sans-serif; max-width:860px; margin:24px auto; padding:0 20px; color:#222; line-height:1.75; font-size:15px; }
+h1 { font-size:24px; border-bottom:3px solid #1976d2; padding-bottom:8px; }
+h2 { font-size:19px; margin-top:34px; color:#1565c0; border-left:5px solid #1976d2; padding-left:10px; }
+code, .path { background:#f1f3f5; padding:1px 7px; border-radius:4px; font-size:13.5px; font-family:Consolas,monospace; }
+.box { border:2px solid #1976d2; border-radius:8px; padding:12px 18px; margin:14px 0; background:#f5f9ff; }
+.warn { border-color:#e65100; background:#fff6ef; }
+.ok { border-color:#2e7d32; background:#f2fbf3; }
+ol li, ul li { margin:7px 0; }
+table { border-collapse:collapse; width:100%; margin:10px 0; }
+th, td { border:1px solid #ddd; padding:8px 10px; text-align:left; font-size:14px; }
+th { background:#f5f7fa; }
+.kbd { border:1px solid #bbb; border-bottom-width:3px; border-radius:4px; padding:0 6px; background:#fafafa; font-size:13px; }
+a { color:#1565c0; }
+.small { color:#777; font-size:13px; }
+@media print { body { margin:8px auto; } }
+</style>
+</head>
+<body>
+<h1>NHITW 診間報告產生器 — 安裝與更新教學</h1>
+<p>查健保雲端的同時，自動幫每位病人產生一頁 HTML 報告存進共享資料夾；診間電腦不用裝任何東西，點開檔案就能看。</p>
+
+<div class="box">
+<b>📦 這個壓縮包裡有什麼</b>
+<table>
+<tr><th>資料夾 / 檔案</th><th>用途</th></tr>
+<tr><td><code>dist/</code></td><td>Chrome / Edge 擴充套件本體（載入未封裝項目時<b>選這個資料夾</b>）</td></tr>
+<tr><td><code>native-host/</code></td><td>共享資料夾主機（雙擊裡面的 <code>install.bat</code> 安裝）</td></tr>
+<tr><td><code>README.html</code></td><td>本說明</td></tr>
+</table>
+</div>
+
+<h2>🚀 全新安裝（第一次裝，約 10 分鐘）</h2>
+<p><b>事前準備：</b>一個櫃檯和診間都開得到的共享資料夾（NAS、伺服器、或任一台電腦分享出來的資料夾），例如 <span class="path">\\你的伺服器\共享\Chart</span>。以下都在<b>櫃檯（讀卡查雲端）的電腦</b>操作。</p>
+<ol>
+<li>解壓縮後會得到一個 <b><code>reader</code></b> 資料夾，把它放到<b>固定位置</b>，例如 <span class="path">C:\reader</span>（之後不能刪、不能搬家）</li>
+<li>打開 Chrome，網址列輸入 <code>chrome://extensions</code>（Edge 輸入 <code>edge://extensions</code>）</li>
+<li>打開右上角「<b>開發人員模式</b>」</li>
+<li>點「<b>載入未封裝項目</b>」→ 選 <span class="path">C:\reader\<b>dist</b></span> 資料夾</li>
+<li>進 <span class="path">C:\reader\native-host</span>，雙擊 <b><code>install.bat</code></b>：
+  <ul>
+  <li><code>Enter shared folder path</code> → <b>輸入你們院所的共享資料夾路徑</b>後按 <span class="kbd">Enter</span></li>
+  <li><code>Enter Chrome extension ID</code> → <b>直接按 <span class="kbd">Enter</span></b>（預設值就是正確的，所有院所都相同）</li>
+  </ul></li>
+<li><b>完全關閉 Chrome 再重開</b>（右上角選單 → 結束，不是只關視窗）</li>
+<li>點擴充套件圖示 → 設定 → 打開「<b>啟用自動匯出</b>」→ 按「<b>檢查連線</b>」顯示正常即完成</li>
+</ol>
+<div class="box ok"><b>驗收：</b>刷一張健保卡查雲端，約 10 秒後共享資料夾出現 <span class="path">今天日期\早診(午診/晚診)\病人姓名_時間.html</span>，診間點開就能看。</div>
+
+<h2>🔄 日常更新（醫師自己 30 秒完成）</h2>
+<ol>
+<li>下載最新完整包（固定網址，永遠是最新版）：<br>
+<a href="https://github.com/jeff830621/NHITW_clinic_reader/raw/release/releases/NHITW_clinic_reader_latest.zip">https://github.com/jeff830621/NHITW_clinic_reader/raw/release/releases/NHITW_clinic_reader_latest.zip</a></li>
+<li>解壓縮，用解壓出的 <code>reader</code> 資料夾內容<b>覆蓋</b>原本的安裝位置（例如 <span class="path">C:\reader</span>，全部取代）</li>
+<li>回到 <code>chrome://extensions</code>，在本套件卡片上按「<b>重新整理 ↻</b>」圖示</li>
+<li><span class="small">（只有公告特別提到「主機有更新」時才需要：進 <code>native-host</code> 重跑一次 <code>install.bat</code>，兩個問題都直接 Enter）</span></li>
+</ol>
+
+<div class="box warn">
+<b>⚠ 從舊版包（解壓後 manifest.json 直接在根目錄的版本）第一次換到本版時：</b>
+<ol>
+<li>在 <code>chrome://extensions</code> 先「移除」舊的套件</li>
+<li>刪掉舊資料夾內容，重新解壓本包</li>
+<li>「載入未封裝項目」改選 <b><code>dist</code></b> 資料夾</li>
+<li>之後的更新就照上面的 30 秒流程即可</li>
+</ol>
+</div>
+
+<h2>❓ 常見問題</h2>
+<table>
+<tr><th>狀況</th><th>處理方式</th></tr>
+<tr><td>查了雲端但共享資料夾沒報告</td><td>設定裡「啟用自動匯出」要開、「檢查連線」要正常；install.bat 輸入的路徑要正確；Chrome 要完全重啟過</td></tr>
+<tr><td>擴充套件圖示出現紅色 ⚠</td><td>上一次匯出失敗（共享資料夾斷線 / 主機未裝 / 報告過大）。排除後再查一次即可</td></tr>
+<tr><td>報告保留幾天？</td><td>預設 40 天後自動清除；天數在設定頁「資料保留天數」調整（1–90）</td></tr>
+<tr><td>有多台讀卡電腦</td><td>每台都做「全新安裝」步驟（共享資料夾路徑輸入同一個）</td></tr>
+<tr><td>想移除</td><td>執行 <code>native-host\uninstall.bat</code>，並在 <code>chrome://extensions</code> 移除套件</td></tr>
+</table>
+
+<p class="small">專案首頁與原始碼：<a href="https://github.com/jeff830621/NHITW_clinic_reader">github.com/jeff830621/NHITW_clinic_reader</a>（本工具為「更好的健保雲端 2.0」之衍生版本，依 Apache 2.0 授權）</p>
+</body>
+</html>
