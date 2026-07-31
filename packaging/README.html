@@ -38,11 +38,11 @@ a { color:#1565c0; }
 <h2>🚀 全新安裝（第一次裝，約 10 分鐘）</h2>
 <p><b>事前準備：</b>一個櫃檯和診間都開得到的共享資料夾（NAS、伺服器、或任一台電腦分享出來的資料夾），例如 <span class="path">\\你的伺服器\共享\Chart</span>。以下都在<b>櫃檯（讀卡查雲端）的電腦</b>操作。</p>
 <ol>
-<li>解壓縮後會得到一個 <b><code>reader</code></b> 資料夾，把它放到<b>固定位置</b>，例如 <span class="path">C:\reader</span>（之後不能刪、不能搬家）</li>
+<li>解壓縮後會得到一個 <b><code>NHITW_clinic_reader</code></b> 資料夾，把它放到<b>固定位置</b>，例如 <span class="path">C:\NHITW_clinic_reader</span>（之後不能刪、不能搬家）</li>
 <li>打開 Chrome，網址列輸入 <code>chrome://extensions</code>（Edge 輸入 <code>edge://extensions</code>）</li>
 <li>打開右上角「<b>開發人員模式</b>」</li>
-<li>點「<b>載入未封裝項目</b>」→ 選 <span class="path">C:\reader\<b>dist</b></span> 資料夾</li>
-<li>進 <span class="path">C:\reader\native-host</span>，雙擊 <b><code>install.bat</code></b>：
+<li>點「<b>載入未封裝項目</b>」→ 選 <span class="path">C:\NHITW_clinic_reader\<b>dist</b></span> 資料夾</li>
+<li>進 <span class="path">C:\NHITW_clinic_reader\native-host</span>，雙擊 <b><code>install.bat</code></b>：
   <ul>
   <li><code>Enter shared folder path</code> → <b>輸入你們院所的共享資料夾路徑</b>後按 <span class="kbd">Enter</span></li>
   <li><code>Enter Chrome extension ID</code> → <b>直接按 <span class="kbd">Enter</span></b>（預設值就是正確的，所有院所都相同）</li>
@@ -56,7 +56,7 @@ a { color:#1565c0; }
 <ol>
 <li>下載最新完整包（固定網址，永遠是最新版）：<br>
 <a href="https://github.com/jeff830621/NHITW_clinic_reader/raw/release/releases/NHITW_clinic_reader_latest.zip">https://github.com/jeff830621/NHITW_clinic_reader/raw/release/releases/NHITW_clinic_reader_latest.zip</a></li>
-<li>解壓縮，用解壓出的 <code>reader</code> 資料夾內容<b>覆蓋</b>原本的安裝位置（例如 <span class="path">C:\reader</span>，全部取代）</li>
+<li>解壓縮，用解壓出的 <code>NHITW_clinic_reader</code> 資料夾內容<b>覆蓋</b>原本的安裝位置（例如 <span class="path">C:\NHITW_clinic_reader</span>，全部取代）</li>
 <li>回到 <code>chrome://extensions</code>，在本套件卡片上按「<b>重新整理 ↻</b>」圖示</li>
 <li><span class="small">（只有公告特別提到「主機有更新」時才需要：進 <code>native-host</code> 重跑一次 <code>install.bat</code>，兩個問題都直接 Enter）</span></li>
 </ol>
