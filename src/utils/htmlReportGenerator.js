@@ -1444,6 +1444,10 @@ const CANCER_CARE_TYPES = [
   { name: '子宮頸癌', primary: ['C53'] },
   { name: '子宮體癌', primary: ['C54'] },
   { name: '甲狀腺癌', primary: ['C73'] },
+  // 115.7.28 起新增三癌別(健保署 115.7.31 公告)
+  { name: '卵巢癌', primary: ['C56'] },
+  { name: '鼻咽癌', primary: ['C11'] },
+  { name: '膀胱癌', primary: ['C67'] },
 ];
 
 function detectCancerCarePlan(codes) {
