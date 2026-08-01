@@ -1137,7 +1137,31 @@ function checkAbnormal(value, reference, orderCode) {
 // bracket form "[70-100]" / "[0.4-1.1]" / "[-2-3]" (which the extension's
 // parseReferenceRange misses — it only knows "[70][100]" and "[7~25]"), then
 // falls back to the robust parser for [min][max], <X, ≧X, etc.
+// 「越高越好」的檢驗:單一門檻一律當下限(HDL 高於門檻是好事)。
+const HIGHER_IS_BETTER_CODES = new Set(['09043C']); // HDL-C
+
 function labRefRange(reference, orderCode, isFemale) {
+  // Sex-specific first — 'M:>40 F:>50' must pick by sex, not by the
+  // greater-than pre-pass below (which would always grab the male bound).
+  const sexed = parseSexSpecificRange(reference, isFemale);
+  if (sexed) return sexed;
+
+  // Lower-bound comparators (> ＞ ≧ ≥): the shared parser only ever understood
+  // '<'-style UPPER bounds, so a lab writing HDL as '[>35][>35]' came back as
+  // min=max=35 → tooltip '35-35' and every normal HDL flagged red (梁O 2026-
+  // 08-01: 61/60/58 all high). A '>' number is a floor; pair it with a '<'
+  // number only when the lab really gave both ('[>35][<80]').
+  const s = String(reference || '');
+  const gt = s.match(/[>＞≧≥]\s*(-?\d*\.?\d+)/);
+  if (gt) {
+    const lo = parseFloat(gt[1]);
+    if (isFinite(lo)) {
+      const lt = s.match(/[<＜≦≤]\s*(-?\d*\.?\d+)/);
+      const hi = lt ? parseFloat(lt[1]) : NaN;
+      return { min: lo, max: isFinite(hi) ? hi : null };
+    }
+  }
+
   const range = labRefRangeRaw(reference, orderCode, isFemale);
   // Reversed bounds — some labs write the UPPER bound first ('[130][0]' for
   // LDL, meaning <130). Parsed verbatim that became min=130/max=0: the
@@ -1147,6 +1171,15 @@ function labRefRange(reference, orderCode, isFemale) {
   if (range && range.min != null && range.max != null &&
       isFinite(range.min) && isFinite(range.max) && range.min > range.max) {
     return { ...range, min: range.max, max: range.min };
+  }
+  // Degenerate min === max — never a real range (a lab repeating one threshold
+  // in both brackets, e.g. '[35][35]'). For 越高越好 items treat it as a floor;
+  // otherwise we can't tell the direction, so show no range and flag nothing —
+  // better than painting every value red.
+  if (range && range.min != null && range.max != null && range.min === range.max) {
+    return HIGHER_IS_BETTER_CODES.has((orderCode || '').trim())
+      ? { min: range.min, max: null }
+      : null;
   }
   return range;
 }
