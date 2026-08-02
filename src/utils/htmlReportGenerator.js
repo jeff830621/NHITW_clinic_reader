@@ -40,6 +40,9 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
   // pure-中藥 patients like 孟卉妍 untraced when the filename downgraded to
   // their ID. Always-on so the next mis-named export carries diagnosis info).
   const identityProbeHtml = buildIdentityProbeComment(patientMeta && patientMeta._identityProbe);
+  // 匯出歷程 probe:含「這份報告之前」的所有匯出事件(包含被跳過/延後的),
+  // 讓「換卡過快或健保網站慢 → 某位病人沒出檔」能事後追查。
+  const exportLogHtml = buildExportLogComment(patientMeta && patientMeta._exportLog);
   const acuBadgeHtml = buildAcupunctureBadge(data);
   const cancerBadgeHtml = buildCancerCareBadge(data);
   const asthmaBadgeHtml = buildAsthmaBadge(data, patientMeta);
@@ -67,7 +70,7 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
     diagnosisHtml, labPivotHtml, westMedHtml, otherWestMedHtml, chineseMedHtml,
     imagingHtml, allergyHtml, surgeryHtml, dischargeHtml,
     adultHealthHtml, cancerScreeningHtml, hbcvHtml, acupunctureProbeHtml,
-    identityProbeHtml,
+    identityProbeHtml, exportLogHtml,
     acuBadgeHtml, cancerBadgeHtml, asthmaBadgeHtml, ckdBadgeHtml, obstBadgeHtml,
     patientMetaLine, projectNotesHtml, cmLeftChipHtml
   });
@@ -955,6 +958,28 @@ function buildAcupunctureProbeComment(rawData) {
 // has zero visual impact; lets us inspect WHY a particular export lost the
 // patient name (JWT lacked UserName? DOM scrape regex missed? sessionStorage
 // had no token at all?) without making the doctor open DevTools.
+// 匯出事件歷程 → HTML 註解。每行一個事件,時間為台灣時間;事件之間標出間隔
+// 秒數,一眼看出「哪一步慢了」。內容只有事件名/筆數/遮蔽代號,無 PHI。
+function buildExportLogComment(events) {
+  if (!Array.isArray(events) || events.length === 0) return '';
+  try {
+    const lines = [];
+    let prev = null;
+    for (const ev of events) {
+      const ts = new Date(ev.t);
+      const hhmmss = isNaN(ts.getTime()) ? String(ev.t)
+        : ts.toLocaleTimeString('zh-TW', { hour12: false, timeZone: 'Asia/Taipei' });
+      const gap = (prev && !isNaN(ts.getTime())) ? ` (+${((ts - prev) / 1000).toFixed(1)}s)` : '';
+      if (!isNaN(ts.getTime())) prev = ts;
+      lines.push(`${hhmmss}${gap}  ${ev.e}${ev.d != null ? '  ' + ev.d : ''}`);
+    }
+    const body = lines.join('\n').replace(/--+/g, '-');
+    return `\n<!-- NHITW-EXPORT-LOG-START\n${body}\nNHITW-EXPORT-LOG-END -->\n`;
+  } catch (e) {
+    return `\n<!-- NHITW-EXPORT-LOG error: ${String(e && e.message || e).replace(/--+/g, '-')} -->\n`;
+  }
+}
+
 function buildIdentityProbeComment(probe) {
   if (!probe) return '';
   try {
@@ -2539,7 +2564,7 @@ function copyLabColumn(th) {
   }
 }
 </script>
-${panels.acupunctureProbeHtml || ''}${panels.identityProbeHtml || ''}
+${panels.acupunctureProbeHtml || ''}${panels.identityProbeHtml || ''}${panels.exportLogHtml || ''}
 </body>
 </html>`;
 }

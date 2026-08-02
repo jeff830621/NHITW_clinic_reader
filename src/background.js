@@ -74,6 +74,33 @@ let _lastExportFingerprint = null;
 // a parallel export of the same content (fingerprint not yet committed).
 let _exportInFlight = false;
 
+// --- Export event log (診斷用) -------------------------------------------
+// 換卡過快 / 健保網站慢時偶爾「沒產出 HTML」。檔案不存在就看不到檔案內的
+// probe,所以事件記在 chrome.storage.session(撐得過 service worker 回收),
+// 再由「下一份成功產出的報告」把歷程帶出來 —— 病人 A 沒出檔的原因,會出現
+// 在病人 B 的報告裡。全部去識別化:只存事件、資料筆數、遮蔽後的代號。
+const EVENT_LOG_KEY = 'nhitwExportEvents';
+const EVENT_LOG_MAX = 60;
+
+async function logEvent(event, detail) {
+  try {
+    const entry = { t: new Date().toISOString(), e: event };
+    if (detail != null) entry.d = detail;
+    const store = await chrome.storage.session.get(EVENT_LOG_KEY);
+    const list = Array.isArray(store[EVENT_LOG_KEY]) ? store[EVENT_LOG_KEY] : [];
+    list.push(entry);
+    while (list.length > EVENT_LOG_MAX) list.shift();
+    await chrome.storage.session.set({ [EVENT_LOG_KEY]: list });
+  } catch (_) { /* storage.session unavailable → 診斷降級,不影響匯出 */ }
+}
+
+async function readEventLog() {
+  try {
+    const store = await chrome.storage.session.get(EVENT_LOG_KEY);
+    return Array.isArray(store[EVENT_LOG_KEY]) ? store[EVENT_LOG_KEY] : [];
+  } catch (_) { return []; }
+}
+
 function scheduleExport() {
   // Debounce by RESET: every new data arrival (or saveToken) pushes the
   // alarm back ~6s, so we only export once the data has stopped streaming
@@ -89,7 +116,9 @@ function scheduleExport() {
 // Listen for the alarm
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'htmlExport') {
+    logEvent('alarm.fired');
     autoExportToSharedFolder().catch(err => {
+      logEvent('export.crash', String(err && err.message || err));
       console.warn('[NHITW Clinic] Export alarm handler error:', err.message);
     });
   }
@@ -98,13 +127,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 async function autoExportToSharedFolder() {
   if (_exportInFlight) {
     console.log('[NHITW Clinic] Export already in flight — skipping concurrent run');
+    logEvent('skip.inFlight');
     return;
   }
   _exportInFlight = true;
   try {
     const settings = await chrome.storage.sync.get('sharedFolder');
     const sharedFolder = settings.sharedFolder || {};
-    if (!sharedFolder.enabled) return;
+    if (!sharedFolder.enabled) { logEvent('skip.disabled'); return; }
 
     // #9a — MV3 worker restarts wipe module state while the chrome.alarm
     // survives, so this can run with an empty currentSessionData even though
@@ -211,6 +241,7 @@ async function autoExportToSharedFolder() {
       const sessionId = userSession.replace('patient_', '');
       if (sessionId && patientId && sessionId !== patientId) {
         console.warn(`[NHITW Clinic] identity/session mismatch (id=${maskPii(patientId, 4, 3)} vs session=${maskPii(sessionId, 4, 3)}) — deferring export until they sync`);
+        logEvent('skip.identityMismatch', `id=${maskPii(patientId, 4, 3)} session=${maskPii(sessionId, 4, 3)}`);
         return;
       }
     }
@@ -233,6 +264,7 @@ async function autoExportToSharedFolder() {
     if (!patientId) {
       if (!userSession) {
         console.log('[NHITW Clinic] No session data, skipping export');
+        logEvent('skip.noSession');
         return;
       }
       patientId = userSession.startsWith('patient_') ? userSession.replace('patient_', '') : userSession;
@@ -259,6 +291,7 @@ async function autoExportToSharedFolder() {
       dataAtExport[k] = Array.isArray(arr) ? arr.length : (v == null ? 0 : 'present');
     }
 
+    patientMeta._exportLog = await readEventLog();
     patientMeta._identityProbe = {
       generatedAt: new Date().toISOString(),
       resolvedName: maskPii(patientName, 1, 1),
@@ -300,6 +333,7 @@ async function autoExportToSharedFolder() {
     });
     if (!hasAnyData) {
       console.log('[NHITW Clinic] Export skipped — no medical data yet (avoiding empty report)');
+      logEvent('skip.noData', JSON.stringify(dataAtExport));
       return;
     }
 
@@ -317,6 +351,7 @@ async function autoExportToSharedFolder() {
       .sort().join('|');
     if (fingerprint === _lastExportFingerprint) {
       console.log('[NHITW Clinic] Export skipped — identical to last export (' + maskPii(patientId, 4, 3) + ')');
+      logEvent('skip.duplicate', maskPii(patientId, 4, 3));
       return;
     }
 
@@ -350,6 +385,7 @@ async function autoExportToSharedFolder() {
         chrome.action.setBadgeBackgroundColor({ color: '#c62828' });
       } catch (_) {}
       html = buildOversizeStub(patientName, patientId, originalKB);
+      logEvent('write.oversizeStub', `${originalKB}KB`);
       await writeHtml(filename, html, undefined, session, sharedFolder.retentionDays || 40);
       return;
     }
@@ -357,12 +393,15 @@ async function autoExportToSharedFolder() {
     // retentionDays rides along so the host cleans with the SETTINGS value —
     // the 設定頁「資料保留天數」 knob used to be dead (host only ever read its
     // own config.json, hardcoded to 7 by install.bat).
+    const writeStart = Date.now();
     await writeHtml(filename, html, undefined, session, sharedFolder.retentionDays || 40);
+    logEvent('write.ok', `${sizeKB}KB in ${Date.now() - writeStart}ms`);
     _lastExportFingerprint = fingerprint;
     try { chrome.storage.session.set({ lastExportFingerprint: fingerprint }); } catch (_) {}
     console.log(`[NHITW Clinic] HTML report saved: ${session}/${filename}`);
   } catch (err) {
     console.warn('[NHITW Clinic] Auto-export failed (non-blocking):', err.message);
+    logEvent('write.fail', String(err && err.message || err).slice(0, 160));
     // #11 — surface the failure: host not installed / share offline / write
     // timeout used to die silently in the console; the doctor believed the
     // report was saved. Same red badge as the oversize path.
@@ -502,6 +541,7 @@ const ACTION_HANDLERS = new Map([
     // the early-saveToken identity, as before.
     const sessionSwitch = currentSessionData.currentUserSession &&
       message.userSession && message.userSession !== currentSessionData.currentUserSession;
+    logEvent('session.changed', `${maskPii(currentSessionData.currentUserSession || '-', 8, 3)} → ${maskPii(message.userSession || '-', 8, 3)}`);
     if (idSwitch || sessionSwitch) {
       currentSessionData.patientName = null;
       currentSessionData.patientIdFromToken = null;
@@ -668,6 +708,8 @@ function saveDataHandler(type) {
     // 更新當前會話數據
     currentSessionData[storageKey] = message.data;
     currentSessionData.currentUserSession = message.userSession || currentSessionData.currentUserSession;
+    const _rows = message.data?.rObject || message.data?.robject;
+    logEvent('data.' + type, Array.isArray(_rows) ? `${_rows.length} rows` : 'present');
 
     // 保存到 storage
     const storageObj = {
