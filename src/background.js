@@ -94,6 +94,21 @@ async function logEvent(event, detail) {
   } catch (_) { /* storage.session unavailable → 診斷降級,不影響匯出 */ }
 }
 
+// 從事件記錄推算「這批資料的讀取耗時」:最後一次換卡之後,第一筆到最後一筆
+// 健保資料抵達的間隔。worker 被回收也算得出來(事件本來就存在 storage)。
+function deriveReadTiming(events) {
+  if (!Array.isArray(events) || events.length === 0) return null;
+  let start = 0;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].e === 'session.changed') { start = i + 1; break; }
+  }
+  const data = events.slice(start).filter(ev => String(ev.e || '').startsWith('data.'));
+  if (data.length === 0) return null;
+  const first = Date.parse(data[0].t), last = Date.parse(data[data.length - 1].t);
+  if (!isFinite(first) || !isFinite(last)) return null;
+  return { readMs: Math.max(0, last - first), types: data.length, lastDataAt: last };
+}
+
 async function readEventLog() {
   try {
     const store = await chrome.storage.session.get(EVENT_LOG_KEY);
@@ -292,6 +307,14 @@ async function autoExportToSharedFolder() {
     }
 
     patientMeta._exportLog = await readEventLog();
+    const _readTiming = deriveReadTiming(patientMeta._exportLog);
+    // 本次的「讀取 / 等待」在產生報告前就知道,直接放進報告摘要;產生與寫入
+    // 耗時發生在報告產生之後,會出現在下一份報告的歷程裡(export.timing)。
+    patientMeta._exportTiming = _readTiming ? {
+      readSec: +(_readTiming.readMs / 1000).toFixed(1),
+      types: _readTiming.types,
+      waitSec: +(Math.max(0, Date.now() - _readTiming.lastDataAt) / 1000).toFixed(1),
+    } : null;
     patientMeta._identityProbe = {
       generatedAt: new Date().toISOString(),
       resolvedName: maskPii(patientName, 1, 1),
@@ -356,7 +379,9 @@ async function autoExportToSharedFolder() {
     }
 
     // Generate and write HTML report only (no JSON)
+    const genStart = Date.now();
     let html = generateHtmlReport(patientName, patientId, exportData, patientMeta);
+    const genMs = Date.now() - genStart;
     const filename = getReportFilename(patientName);
     const session = getClinicSession(new Date());
     const originalKB = Math.round(new Blob([html]).size / 1024);
@@ -395,7 +420,15 @@ async function autoExportToSharedFolder() {
     // own config.json, hardcoded to 7 by install.bat).
     const writeStart = Date.now();
     await writeHtml(filename, html, undefined, session, sharedFolder.retentionDays || 40);
-    logEvent('write.ok', `${sizeKB}KB in ${Date.now() - writeStart}ms`);
+    const writeMs = Date.now() - writeStart;
+    // 三段耗時分開報:讀取(健保雲端回資料)/ 產生 HTML / 寫入共享資料夾,
+    // 外加「最後一筆資料 → 開始匯出」的等待(去抖動 + 排程延遲)。
+    const waitMs = _readTiming?.lastDataAt ? Math.max(0, genStart - _readTiming.lastDataAt) : null;
+    logEvent('write.ok', `${sizeKB}KB in ${writeMs}ms`);
+    logEvent('export.timing',
+      `讀取 ${_readTiming ? (_readTiming.readMs / 1000).toFixed(1) + 's/' + _readTiming.types + '類' : '-'}`
+      + ` | 等待 ${waitMs != null ? (waitMs / 1000).toFixed(1) + 's' : '-'}`
+      + ` | 產生 ${genMs}ms | 寫入 ${writeMs}ms | 檔案 ${sizeKB}KB`);
     _lastExportFingerprint = fingerprint;
     try { chrome.storage.session.set({ lastExportFingerprint: fingerprint }); } catch (_) {}
     console.log(`[NHITW Clinic] HTML report saved: ${session}/${filename}`);

@@ -42,7 +42,8 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
   const identityProbeHtml = buildIdentityProbeComment(patientMeta && patientMeta._identityProbe);
   // 匯出歷程 probe:含「這份報告之前」的所有匯出事件(包含被跳過/延後的),
   // 讓「換卡過快或健保網站慢 → 某位病人沒出檔」能事後追查。
-  const exportLogHtml = buildExportLogComment(patientMeta && patientMeta._exportLog);
+  const exportLogHtml = buildExportLogComment(
+    patientMeta && patientMeta._exportLog, patientMeta && patientMeta._exportTiming);
   const acuBadgeHtml = buildAcupunctureBadge(data);
   const cancerBadgeHtml = buildCancerCareBadge(data);
   const asthmaBadgeHtml = buildAsthmaBadge(data, patientMeta);
@@ -960,10 +961,15 @@ function buildAcupunctureProbeComment(rawData) {
 // had no token at all?) without making the doctor open DevTools.
 // 匯出事件歷程 → HTML 註解。每行一個事件,時間為台灣時間;事件之間標出間隔
 // 秒數,一眼看出「哪一步慢了」。內容只有事件名/筆數/遮蔽代號,無 PHI。
-function buildExportLogComment(events) {
+function buildExportLogComment(events, timing) {
   if (!Array.isArray(events) || events.length === 0) return '';
   try {
     const lines = [];
+    if (timing) {
+      lines.push(`[本次] 資料讀取 ${timing.readSec}s (${timing.types} 類) ｜ 最後一筆資料→開始匯出 ${timing.waitSec}s`);
+      lines.push(`       (產生 HTML / 寫入共享資料夾的耗時見下一份報告的 export.timing)`);
+      lines.push('');
+    }
     let prev = null;
     for (const ev of events) {
       const ts = new Date(ev.t);
