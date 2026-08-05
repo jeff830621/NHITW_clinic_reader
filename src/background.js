@@ -572,9 +572,9 @@ const ACTION_HANDLERS = new Map([
     // caught patient_-prefixed sessions, leaving token_/dom_ patients' stale
     // identity alive across a switch. First-load (no previous session) keeps
     // the early-saveToken identity, as before.
-    const sessionSwitch = currentSessionData.currentUserSession &&
-      message.userSession && message.userSession !== currentSessionData.currentUserSession;
-    logEvent('session.changed', `${maskPii(currentSessionData.currentUserSession || '-', 8, 3)} → ${maskPii(message.userSession || '-', 8, 3)}`);
+    const prevSession = message._prevUserSession;
+    const sessionSwitch = prevSession && message.userSession && message.userSession !== prevSession;
+    logEvent('session.changed', `${maskPii(prevSession || '-', 8, 3)} → ${maskPii(message.userSession || '-', 8, 3)}`);
     if (idSwitch || sessionSwitch) {
       currentSessionData.patientName = null;
       currentSessionData.patientIdFromToken = null;
@@ -742,7 +742,9 @@ function saveDataHandler(type) {
     currentSessionData[storageKey] = message.data;
     currentSessionData.currentUserSession = message.userSession || currentSessionData.currentUserSession;
     const _rows = message.data?.rObject || message.data?.robject;
-    logEvent('data.' + type, Array.isArray(_rows) ? `${_rows.length} rows` : 'present');
+    logEvent('data.' + type,
+      (Array.isArray(_rows) ? `${_rows.length} rows` : 'present')
+      + (message.fetchMs ? ` (健保回應 ${message.fetchMs}ms)` : ''));
 
     // 保存到 storage
     const storageObj = {
@@ -780,6 +782,12 @@ function saveDataHandler(type) {
 // 監聽來自 content script 的訊息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 檢查是否有會話變更
+  // Stash the session as it stood BEFORE this message touched it. The block
+  // below adopts message.userSession immediately, so by the time the
+  // userSessionChanged handler runs, old === new — which silently disabled the
+  // session-based identity wipe (token_/dom_ sessions) and made every
+  // session.changed log line print the same value twice (2026-08-05 probe).
+  message._prevUserSession = currentSessionData.currentUserSession;
   if (message.userSession && message.userSession !== currentSessionData.currentUserSession) {
     // console.log("User session changed, resetting temporary data");
     clearMedicalData();

@@ -54,6 +54,10 @@ let isBatchFetchInProgress = false;
 
 let isDataFetchingStarted = false;
 
+// 每個資料類型最後一次的健保雲端回應耗時(ms),隨 save*Data 一起送給背景
+// 腳本,匯出診斷時就能區分「健保慢」還是「我們慢」。
+const lastFetchMs = {};
+
 let pendingRequests = {
   medication: false,
   labdata: false,
@@ -819,6 +823,7 @@ const DataProcessor = {
         action: action,
         data: data,
         userSession: currentUserSession,
+        fetchMs: lastFetchMs[dataType],
       },
       (response) => {
         if (response && response.status === "saved") {
@@ -1668,6 +1673,7 @@ function enhancedFetchData(dataType, options = {}) {
   // 會被當成 API JSON 再處理一次(masterMenu 的 prsnAuth 因此被垃圾覆蓋 →
   // 整批誤判無授權 → 無聲匯出空報告)。
   const RETRY_SETTLED = Symbol("nhitw-retry-settled");
+  const fetchStartedAt = Date.now(); // 健保雲端回應耗時(含重試),供匯出診斷用
   // console.log(`開始獲取 ${dataType} 資料 - ${new Date().toISOString()}`);
 
   // 主要的獲取邏輯
@@ -1794,6 +1800,7 @@ function enhancedFetchData(dataType, options = {}) {
               }
             }
 
+            lastFetchMs[dataType] = Date.now() - fetchStartedAt;
             saveData(normalizedData, dataType, "direct");
             const recordCount = normalizedData.rObject.length;
             console.log(`[DEBUG] ${dataType} 請求完成，記錄數: ${recordCount}`);
