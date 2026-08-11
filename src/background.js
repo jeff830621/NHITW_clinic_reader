@@ -73,6 +73,11 @@ let _lastExportFingerprint = null;
 // Concurrent-export lock: a hung native write must not let a second alarm run
 // a parallel export of the same content (fingerprint not yet committed).
 let _exportInFlight = false;
+// 匯出進行中被跳過的重試次數(避免無限重排)
+let _inFlightRetries = 0;
+// 提早擷取到的年齡/性別/生日,綁定當時的會話 —— 換卡快照要靠它,badge 判定
+// (CKD/氣喘)才不會因為問不到分頁而失準。
+let _capturedMeta = null;
 
 // --- Export event log (診斷用) -------------------------------------------
 // 換卡過快 / 健保網站慢時偶爾「沒產出 HTML」。檔案不存在就看不到檔案內的
@@ -150,6 +155,7 @@ async function captureIdentityEarly(tabId) {
       currentSessionData.patientName = fresh.name;
       if (fresh.id) currentSessionData.patientIdFromToken = fresh.id;
       currentSessionData._identityCapturedSession = session;
+      _capturedMeta = { session, age: fresh.age ?? null, sex: fresh.sex || '', birthday: fresh.birthday || '' };
       rememberName(session, fresh.name);
       logEvent('identity.early', `name=${maskPii(fresh.name, 1, 1)} id=${maskPii(fresh.id || '', 4, 3)}`);
     } else {
@@ -165,6 +171,28 @@ async function readEventLog() {
     const store = await chrome.storage.session.get(EVENT_LOG_KEY);
     return Array.isArray(store[EVENT_LOG_KEY]) ? store[EVENT_LOG_KEY] : [];
   } catch (_) { return []; }
+}
+
+// 換卡先匯出再清空。連續看診(病人 A 的資料剛到、7 秒內 B 就插卡)時,舊流程
+// 會在計時器到期前把 A 的資料清掉 → A 完全沒有檔案且無任何訊息。現在先用快照
+// 把 A 寫出去,再清空給 B。快照是複本,之後的清空動作不會影響它。
+async function flushPendingPatient(reason) {
+  const hasData = Object.entries(currentSessionData).some(([k, v]) => {
+    if (IDENTITY_KEYS.has(k)) return false;
+    const arr = v?.rObject || v?.robject;
+    return Array.isArray(arr) ? arr.length > 0 : !!v;
+  });
+  if (!hasData) return;
+  const snapshot = { ...currentSessionData };
+  if (_capturedMeta && _capturedMeta.session === snapshot.currentUserSession) {
+    snapshot._meta = _capturedMeta;
+  }
+  logEvent('flush.start', `${reason} session=${maskPii(snapshot.currentUserSession || '-', 8, 3)}`);
+  try {
+    await autoExportToSharedFolder({ state: snapshot });
+  } catch (e) {
+    logEvent('flush.fail', String(e && e.message || e).slice(0, 120));
+  }
 }
 
 function scheduleExport() {
@@ -190,25 +218,37 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-async function autoExportToSharedFolder() {
+async function autoExportToSharedFolder(opts) {
+  // opts.state = 換卡前拍下的快照(flushPendingPatient)。有快照時完全不碰
+  // 分頁 —— 那個分頁此刻已經是「下一位病人」,問它只會拿到錯的身分。
+  const snap = (opts && opts.state) || null;
+  const state = snap || currentSessionData;
   if (_exportInFlight) {
     console.log('[NHITW Clinic] Export already in flight — skipping concurrent run');
-    logEvent('skip.inFlight');
+    // 排隊而非丟棄:寫入卡住時,後續病人不該跟著沒檔案。
+    if (!snap && _inFlightRetries < 5) {
+      _inFlightRetries++;
+      chrome.alarms.create('htmlExport', { delayInMinutes: 0.1 });
+      logEvent('skip.inFlight', `已重新排隊 (第 ${_inFlightRetries} 次)`);
+    } else {
+      logEvent('skip.inFlight', snap ? 'flush 放棄' : '重試次數用盡');
+    }
     return;
   }
   _exportInFlight = true;
+  _inFlightRetries = 0;
   try {
     const settings = await chrome.storage.sync.get('sharedFolder');
     const sharedFolder = settings.sharedFolder || {};
     if (!sharedFolder.enabled) { logEvent('skip.disabled'); return; }
 
     // #9a — MV3 worker restarts wipe module state while the chrome.alarm
-    // survives, so this can run with an empty currentSessionData even though
+    // survives, so this can run with an empty state even though
     // every payload sits in chrome.storage.local (saveDataHandler persists
     // them). Rehydrate when memory is empty AND the stored batch is fresh
     // (<10 min) — stale batches stay ignored so a browser-restart alarm can't
     // re-export yesterday's patient.
-    const memoryHasData = Object.entries(currentSessionData).some(([k, v]) => {
+    const memoryHasData = snap ? true : Object.entries(state).some(([k, v]) => {
       if (IDENTITY_KEYS.has(k)) return false;
       const arr = v?.rObject || v?.robject;
       return Array.isArray(arr) ? arr.length > 0 : !!v;
@@ -219,10 +259,10 @@ async function autoExportToSharedFolder() {
       if (stored._lastSaveAt && (Date.now() - stored._lastSaveAt) < 10 * 60 * 1000) {
         let restored = 0;
         for (const key of Object.values(DATA_TYPE_TO_STORAGE_KEY)) {
-          if (stored[key] && !currentSessionData[key]) { currentSessionData[key] = stored[key]; restored++; }
+          if (stored[key] && !state[key]) { state[key] = stored[key]; restored++; }
         }
-        if (!currentSessionData.currentUserSession && stored.currentUserSession) {
-          currentSessionData.currentUserSession = stored.currentUserSession;
+        if (!state.currentUserSession && stored.currentUserSession) {
+          state.currentUserSession = stored.currentUserSession;
         }
         if (restored > 0) console.warn(`[NHITW Clinic] worker was recycled — rehydrated ${restored} data types from storage`);
       }
@@ -245,7 +285,11 @@ async function autoExportToSharedFolder() {
     // to active NHI tab only if the tracked tab is gone (closed).
     let patientMeta = { age: null, sex: '', birthday: '' };
     let fresh = null;
-    let targetTabId = _activePatientTabId;
+    // 快照模式:身分只能來自快照(含提早擷取到的年齡/性別),絕不問分頁。
+    if (snap) {
+      if (snap._meta) patientMeta = { age: snap._meta.age ?? null, sex: snap._meta.sex || '', birthday: snap._meta.birthday || '' };
+    }
+    let targetTabId = snap ? -1 : _activePatientTabId;
     if (targetTabId > 0) {
       try {
         fresh = await chrome.tabs.sendMessage(targetTabId, { action: 'getPatientInfo' });
@@ -255,7 +299,7 @@ async function autoExportToSharedFolder() {
         targetTabId = -1;
       }
     }
-    if (!fresh) {
+    if (!fresh && !snap) {
       try {
         // Last-resort fallback: prefer the active NHI tab, never just tabs[0]
         const tabs = await chrome.tabs.query({ url: 'https://medcloud2.nhi.gov.tw/*' });
@@ -271,8 +315,8 @@ async function autoExportToSharedFolder() {
     // Atomic update: (name, id) move together. Only trust fresh if it has an
     // id — empty responses leave the cached saveToken value intact.
     if (fresh?.id) {
-      const switched = fresh.id !== currentSessionData.patientIdFromToken;
-      currentSessionData.patientIdFromToken = fresh.id;
+      const switched = fresh.id !== state.patientIdFromToken;
+      state.patientIdFromToken = fresh.id;
       // Only overwrite the cached name when getPatientInfo actually returned
       // one. Some hospitals' JWT omits UserName, so getPatientInfo's
       // JWT-only decode comes back nameless even though saveToken's DOM
@@ -281,23 +325,23 @@ async function autoExportToSharedFolder() {
       // so keep the existing name unless the patient genuinely changed or we
       // never had a name to begin with.
       if (fresh.name) {
-        currentSessionData.patientName = fresh.name;
-      } else if (switched || !currentSessionData.patientName) {
-        currentSessionData.patientName = fresh.id;
+        state.patientName = fresh.name;
+      } else if (switched || !state.patientName) {
+        state.patientName = fresh.id;
       }
       // Fresh identity is read from the CURRENT tab right now → bind it to the
       // current session (#2), same as the saveToken path.
-      currentSessionData._identityCapturedSession = currentSessionData.currentUserSession || null;
-      if (fresh.name) rememberName(currentSessionData.currentUserSession, fresh.name);
+      state._identityCapturedSession = state.currentUserSession || null;
+      if (fresh.name) rememberName(state.currentUserSession, fresh.name);
       patientMeta = { age: fresh.age ?? null, sex: fresh.sex || '', birthday: fresh.birthday || '' };
     }
 
-    let patientId = currentSessionData.patientIdFromToken;
-    let patientName = currentSessionData.patientName;
+    let patientId = state.patientIdFromToken;
+    let patientName = state.patientName;
     // 這次問不到姓名,但本瀏覽器工作階段內看過同一位病人 → 用記住的姓名,
     // 免得同一位病人一下有名字、一下變身分證號。
-    if (!patientName && currentSessionData.currentUserSession) {
-      const memo = await recallName(currentSessionData.currentUserSession);
+    if (!patientName && state.currentUserSession) {
+      const memo = await recallName(state.currentUserSession);
       if (memo) {
         patientName = memo;
         logEvent('identity.recalled', maskPii(memo, 1, 1));
@@ -312,7 +356,7 @@ async function autoExportToSharedFolder() {
     // F127375002's 眼科 data was about to be exported under 陳淑媚 R220136259).
     // Defer the export — the new patient's saveToken will sync identity to the
     // session shortly, then the next alarm exports correctly.
-    const userSession = currentSessionData.currentUserSession || '';
+    const userSession = state.currentUserSession || '';
     if (userSession.startsWith('patient_')) {
       const sessionId = userSession.replace('patient_', '');
       if (sessionId && patientId && sessionId !== patientId) {
@@ -326,12 +370,12 @@ async function autoExportToSharedFolder() {
     // is stale. Deferring can't help here (there's no ID to sync against), so
     // drop the identity and continue — the fallback naming below produces an
     // anonymous-but-correctly-scoped report instead of one with the wrong name.
-    const capturedUnder = currentSessionData._identityCapturedSession;
+    const capturedUnder = state._identityCapturedSession;
     if (patientId && capturedUnder && userSession && capturedUnder !== userSession) {
       console.warn(`[NHITW Clinic] identity was captured under a different session (${maskPii(capturedUnder, 8, 3)} ≠ ${maskPii(userSession, 8, 3)}) — dropping stale identity, exporting with fallback naming`);
-      currentSessionData.patientName = null;
-      currentSessionData.patientIdFromToken = null;
-      currentSessionData._identityCapturedSession = null;
+      state.patientName = null;
+      state.patientIdFromToken = null;
+      state._identityCapturedSession = null;
       patientId = '';
       patientName = '';
     }
@@ -361,7 +405,7 @@ async function autoExportToSharedFolder() {
     // resolve to patient X but the report STILL renders 中藥 entries, the
     // residue is sneaking in through some channel we haven't traced yet.
     const dataAtExport = {};
-    for (const [k, v] of Object.entries(currentSessionData)) {
+    for (const [k, v] of Object.entries(state)) {
       if (IDENTITY_KEYS.has(k)) continue;
       const arr = v?.rObject;
       dataAtExport[k] = Array.isArray(arr) ? arr.length : (v == null ? 0 : 'present');
@@ -380,13 +424,13 @@ async function autoExportToSharedFolder() {
       generatedAt: new Date().toISOString(),
       resolvedName: maskPii(patientName, 1, 1),
       resolvedId: maskPii(patientId, 4, 3),
-      nameSource: patientName === patientId ? 'fallback_to_id' : (currentSessionData.patientName ? 'cache' : 'fresh'),
+      nameSource: patientName === patientId ? 'fallback_to_id' : (state.patientName ? 'cache' : 'fresh'),
       activeTabId: _activePatientTabId,
       dataAtExport,
       cached: {
-        name: maskPii(currentSessionData.patientName || '', 1, 1),
-        id: maskPii(currentSessionData.patientIdFromToken || '', 4, 3),
-        session: currentSessionData.currentUserSession || null,
+        name: maskPii(state.patientName || '', 1, 1),
+        id: maskPii(state.patientIdFromToken || '', 4, 3),
+        session: state.currentUserSession || null,
       },
       freshFromTab: fresh ? {
         name: maskPii(fresh.name || '', 1, 1),
@@ -399,8 +443,10 @@ async function autoExportToSharedFolder() {
     };
 
     const exportData = {};
-    for (const [key, value] of Object.entries(currentSessionData)) {
-      if (key !== 'token' && key !== 'currentUserSession' && value) {
+    for (const [key, value] of Object.entries(state)) {
+      // 底線開頭是內部欄位(_meta、_identityCapturedSession…),不是醫療資料:
+      // 混進去會改變去重指紋,換卡 flush 時就會把剛匯出過的病人再寫一次。
+      if (key !== 'token' && key !== 'currentUserSession' && !key.startsWith('_') && value) {
         exportData[key] = value;
       }
     }
@@ -655,6 +701,7 @@ const ACTION_HANDLERS = new Map([
   
   ['clearSessionData', (message, sender, sendResponse) => {
     // console.log("Clearing session data");
+    flushPendingPatient('清除會話');
     clearMedicalData();
     sendResponse({ status: "cleared" });
   }],
@@ -746,6 +793,7 @@ const ACTION_HANDLERS = new Map([
         currentSessionData.patientIdFromToken &&
         message.patientIdFromToken !== currentSessionData.patientIdFromToken) {
       console.log(`[NHITW Clinic] saveToken patient switched (${maskPii(currentSessionData.patientIdFromToken, 4, 3)} → ${maskPii(message.patientIdFromToken, 4, 3)}) — clearing residual medical data`);
+      flushPendingPatient('saveToken換人');
       clearMedicalData();
     }
     // Update (name, id) atomically — never mix a new ID with a stale name.
@@ -854,6 +902,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   message._prevUserSession = currentSessionData.currentUserSession;
   if (message.userSession && message.userSession !== currentSessionData.currentUserSession) {
     // console.log("User session changed, resetting temporary data");
+    // 先把上一位病人寫出去(非同步,不阻擋這則訊息),再清空。
+    flushPendingPatient('換卡');
     clearMedicalData();
     currentSessionData.currentUserSession = message.userSession;
   }
