@@ -109,6 +109,57 @@ function deriveReadTiming(events) {
   return { readMs: Math.max(0, last - first), types: data.length, lastDataAt: last };
 }
 
+// --- 提早取得病人身分 ---------------------------------------------------
+// 匯出是在最後一筆資料抵達約 7 秒後才跑;櫃檯若在這 7 秒內就退出病人、回到
+// 選單頁,分頁的 sessionStorage(token)與 DOM 都已清空 → 問不到姓名,檔名
+// 只好退回身分證號(G222673775_20260811_200557.html,2026-08-11 案例)。
+// 資料正在抵達時病人頁一定還活著,所以那一刻就先把姓名抓下來存著。
+let _identityAskedForSession = null;
+const NAME_MEMO_KEY = 'nhitwNameBySession';
+
+async function rememberName(session, name) {
+  if (!session || !name) return;
+  try {
+    const store = await chrome.storage.session.get(NAME_MEMO_KEY);
+    const memo = store[NAME_MEMO_KEY] || {};
+    memo[session] = name;
+    const keys = Object.keys(memo);
+    while (keys.length > 40) delete memo[keys.shift()];
+    await chrome.storage.session.set({ [NAME_MEMO_KEY]: memo });
+  } catch (_) { /* 記不起來就算了,不影響匯出 */ }
+}
+
+async function recallName(session) {
+  if (!session) return null;
+  try {
+    const store = await chrome.storage.session.get(NAME_MEMO_KEY);
+    return (store[NAME_MEMO_KEY] || {})[session] || null;
+  } catch (_) { return null; }
+}
+
+async function captureIdentityEarly(tabId) {
+  const session = currentSessionData.currentUserSession;
+  if (!session || !(tabId > 0)) return;
+  const haveName = currentSessionData.patientName &&
+    currentSessionData.patientName !== currentSessionData.patientIdFromToken;
+  if (haveName || _identityAskedForSession === session) return;
+  _identityAskedForSession = session;
+  try {
+    const fresh = await chrome.tabs.sendMessage(tabId, { action: 'getPatientInfo' });
+    if (fresh?.name) {
+      currentSessionData.patientName = fresh.name;
+      if (fresh.id) currentSessionData.patientIdFromToken = fresh.id;
+      currentSessionData._identityCapturedSession = session;
+      rememberName(session, fresh.name);
+      logEvent('identity.early', `name=${maskPii(fresh.name, 1, 1)} id=${maskPii(fresh.id || '', 4, 3)}`);
+    } else {
+      logEvent('identity.earlyEmpty');
+    }
+  } catch (e) {
+    logEvent('identity.earlyFail', String(e && e.message || e).slice(0, 80));
+  }
+}
+
 async function readEventLog() {
   try {
     const store = await chrome.storage.session.get(EVENT_LOG_KEY);
@@ -237,11 +288,21 @@ async function autoExportToSharedFolder() {
       // Fresh identity is read from the CURRENT tab right now → bind it to the
       // current session (#2), same as the saveToken path.
       currentSessionData._identityCapturedSession = currentSessionData.currentUserSession || null;
+      if (fresh.name) rememberName(currentSessionData.currentUserSession, fresh.name);
       patientMeta = { age: fresh.age ?? null, sex: fresh.sex || '', birthday: fresh.birthday || '' };
     }
 
     let patientId = currentSessionData.patientIdFromToken;
     let patientName = currentSessionData.patientName;
+    // 這次問不到姓名,但本瀏覽器工作階段內看過同一位病人 → 用記住的姓名,
+    // 免得同一位病人一下有名字、一下變身分證號。
+    if (!patientName && currentSessionData.currentUserSession) {
+      const memo = await recallName(currentSessionData.currentUserSession);
+      if (memo) {
+        patientName = memo;
+        logEvent('identity.recalled', maskPii(memo, 1, 1));
+      }
+    }
 
     // SAFETY — identity/session consistency. The medical payloads are fetched
     // against currentUserSession (the patient currently loaded). If the cached
@@ -580,6 +641,7 @@ const ACTION_HANDLERS = new Map([
       currentSessionData.patientIdFromToken = null;
       currentSessionData._identityCapturedSession = null;
     }
+    _identityAskedForSession = null; // 新病人要重新問一次
     currentSessionData.currentUserSession = message.userSession;
 
     // 從 storage 中移除數據
@@ -745,6 +807,8 @@ function saveDataHandler(type) {
     logEvent('data.' + type,
       (Array.isArray(_rows) ? `${_rows.length} rows` : 'present')
       + (message.fetchMs ? ` (健保回應 ${message.fetchMs}ms)` : ''));
+    // 病人頁此刻一定還活著 —— 趁現在把姓名問到手(見 captureIdentityEarly)
+    captureIdentityEarly(sender?.tab?.id ?? _activePatientTabId);
 
     // 保存到 storage
     const storageObj = {
