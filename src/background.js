@@ -312,6 +312,17 @@ async function autoExportToSharedFolder(opts) {
         console.warn('[NHITW Clinic] Fallback getPatientInfo also failed:', e.message);
       }
     }
+    // 分頁可能已經換到下一位病人了(櫃檯在計時器到期的同一秒插下一張卡):
+    // 那時問到的身分/年齡/性別屬於「下一位」,套到這份報告上會讓檔名、CKD、
+    // 氣喘等判定全部錯位 —— 更糟的是接著被自己的一致性防護擋下,整份檔案消失,
+    // 得再刷一次卡才出得來(翁于珊 2026-08-17 19:19:16)。與會話不符就不採用。
+    const sessionIdNow = (state.currentUserSession || '').startsWith('patient_')
+      ? state.currentUserSession.replace('patient_', '') : '';
+    if (fresh?.id && sessionIdNow && fresh.id !== sessionIdNow) {
+      logEvent('identity.tabAhead',
+        `分頁=${maskPii(fresh.id, 4, 3)} 會話=${maskPii(sessionIdNow, 4, 3)},不採用分頁身分`);
+      fresh = null;
+    }
     // Atomic update: (name, id) move together. Only trust fresh if it has an
     // id — empty responses leave the cached saveToken value intact.
     if (fresh?.id) {
@@ -334,6 +345,12 @@ async function autoExportToSharedFolder(opts) {
       state._identityCapturedSession = state.currentUserSession || null;
       if (fresh.name) rememberName(state.currentUserSession, fresh.name);
       patientMeta = { age: fresh.age ?? null, sex: fresh.sex || '', birthday: fresh.birthday || '' };
+    }
+    // 分頁問不到、或分頁已跑到下一位病人而不予採用時,改用提早擷取時記下的
+    // 年齡/性別(限同一會話)—— 否則 CKD/氣喘等需要年齡性別的判定會失準。
+    if (patientMeta.age == null && !patientMeta.sex && _capturedMeta &&
+        _capturedMeta.session === state.currentUserSession) {
+      patientMeta = { age: _capturedMeta.age, sex: _capturedMeta.sex, birthday: _capturedMeta.birthday };
     }
 
     let patientId = state.patientIdFromToken;
@@ -360,9 +377,24 @@ async function autoExportToSharedFolder(opts) {
     if (userSession.startsWith('patient_')) {
       const sessionId = userSession.replace('patient_', '');
       if (sessionId && patientId && sessionId !== patientId) {
-        console.warn(`[NHITW Clinic] identity/session mismatch (id=${maskPii(patientId, 4, 3)} vs session=${maskPii(sessionId, 4, 3)}) — deferring export until they sync`);
-        logEvent('skip.identityMismatch', `id=${maskPii(patientId, 4, 3)} session=${maskPii(sessionId, 4, 3)}`);
-        return;
+        // 身分與會話不符。以前一律延後匯出,等身分同步 —— 但櫃檯在計時器到期
+        // 的同一秒插下一張卡時,身分會「跑在會話前面」,這個會話馬上就要被清掉,
+        // 根本等不到下一次機會 → 該病人整份檔案消失,得再刷一次卡才出得來
+        // (翁于珊 2026-08-17 19:19:16)。
+        // 資料是這個會話抓的,所以會話才是資料的擁有者:直接改用這個會話自己的
+        // 身分(提早擷取時記住的姓名 + 會話帶的身分證號),照樣把檔案寫出去。
+        // 記不得姓名時才維持原本的延後行為(避免產出只有號碼的重複檔)。
+        const memoName = await recallName(userSession);
+        if (memoName || snap) {
+          logEvent('identity.substituted',
+            `會話 ${maskPii(sessionId, 4, 3)} 取代被蓋掉的身分 ${maskPii(patientId, 4, 3)}`);
+          patientId = sessionId;
+          patientName = memoName || '';
+        } else {
+          console.warn(`[NHITW Clinic] identity/session mismatch (id=${maskPii(patientId, 4, 3)} vs session=${maskPii(sessionId, 4, 3)}) — deferring export until they sync`);
+          logEvent('skip.identityMismatch', `id=${maskPii(patientId, 4, 3)} session=${maskPii(sessionId, 4, 3)}`);
+          return;
+        }
       }
     }
     // #2 general form — covers token_/dom_ sessions the ID check above can't
@@ -681,7 +713,6 @@ const ACTION_HANDLERS = new Map([
     // the early-saveToken identity, as before.
     const prevSession = message._prevUserSession;
     const sessionSwitch = prevSession && message.userSession && message.userSession !== prevSession;
-    logEvent('session.changed', `${maskPii(prevSession || '-', 8, 3)} → ${maskPii(message.userSession || '-', 8, 3)}`);
     if (idSwitch || sessionSwitch) {
       currentSessionData.patientName = null;
       currentSessionData.patientIdFromToken = null;
@@ -902,6 +933,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   message._prevUserSession = currentSessionData.currentUserSession;
   if (message.userSession && message.userSession !== currentSessionData.currentUserSession) {
     // console.log("User session changed, resetting temporary data");
+    // 這裡是 session 真正變更的唯一地點 —— 記錄放這裡才不會漏。之前只在
+    // userSessionChanged 訊息裡記,換卡若是由 saveToken/資料訊息帶進來就沒
+    // 記錄,「本次讀取耗時」會把上一位病人的資料一起算進去。
+    logEvent('session.changed',
+      `${maskPii(currentSessionData.currentUserSession || '-', 8, 3)} → ${maskPii(message.userSession, 8, 3)}`);
     // 先把上一位病人寫出去(非同步,不阻擋這則訊息),再清空。
     flushPendingPatient('換卡');
     clearMedicalData();
