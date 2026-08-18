@@ -73,7 +73,8 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
     adultHealthHtml, cancerScreeningHtml, hbcvHtml, acupunctureProbeHtml,
     identityProbeHtml, exportLogHtml,
     acuBadgeHtml, cancerBadgeHtml, asthmaBadgeHtml, ckdBadgeHtml, obstBadgeHtml,
-    patientMetaLine, projectNotesHtml, cmLeftChipHtml
+    patientMetaLine, projectNotesHtml, cmLeftChipHtml,
+    stamp: buildStamp()
   });
 }
 
@@ -116,6 +117,23 @@ export function getReportFilename(patientName, date) {
   const safeName = patientName.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').replace(/^\.+/, '');
   const finalName = safeName || 'unknown';
   return `${finalName}_${y}${mo}${da}_${h}${mi}${se}.html`;
+}
+
+// --- 版本戳記 ---------------------------------------------------------
+// 押在報告上的「程式版本」= 打包當天的台灣日期(由 build.js 注入)。診間把
+// HTML 回傳時,一眼就知道是哪一天的版本產生的,不必再從功能特徵反推。
+function buildStamp() {
+  let build = '';
+  try { build = typeof __NHITW_BUILD__ !== 'undefined' ? String(__NHITW_BUILD__) : ''; } catch (_) {}
+  let version = '';
+  try { version = (globalThis.chrome?.runtime?.getManifest?.() || {}).version || ''; } catch (_) {}
+  const m = /^(\d{4})(\d{2})(\d{2})(?:-(\d{2})(\d{2}))?$/.exec(build);
+  return {
+    date: m ? `${m[1]}/${m[2]}/${m[3]}` : '',
+    time: m && m[4] ? `${m[4]}:${m[5]}` : '',
+    build,
+    version,
+  };
 }
 
 // --- Helpers ---
@@ -2455,7 +2473,8 @@ ${panels.projectNotesHtml || ''}
   </div>
 </div>
 
-<div class="clinic-credit">八德仁德風澤　王文洲醫師</div>
+<div class="clinic-credit">八德仁德風澤　王文洲醫師${panels.stamp?.date ? ' ｜ 程式版本 ' + esc(panels.stamp.date) : ''}</div>
+<!-- NHITW-VERSION ${esc(panels.stamp?.version || '?')} build ${esc(panels.stamp?.build || '?')} -->
 
 <script>
 function togglePanel(title) {

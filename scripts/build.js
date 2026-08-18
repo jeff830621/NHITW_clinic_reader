@@ -12,7 +12,15 @@ const __dirname = path.dirname(__filename);
 
 const ROOT = path.dirname(__dirname);
 
+// 每次 build 的識別碼(台灣時間 YYYYMMDD-HHmm)。押在產出的 HTML 報告上,
+// 診間把檔案回傳時就能一眼看出是哪一版產的,不必再從功能特徵反推。
+function makeBuildId() {
+  const tw = new Date(Date.now() + 8 * 3600 * 1000).toISOString(); // UTC+8
+  return tw.slice(0, 10).replace(/-/g, '') + '-' + tw.slice(11, 16).replace(':', '');
+}
+
 async function bundleContentScript({sourcemap = false, minify = true} = {}) {
+  const buildId = makeBuildId();
   try {
     // Bundle content script
     await build({
@@ -25,7 +33,8 @@ async function bundleContentScript({sourcemap = false, minify = true} = {}) {
       sourcemap,
       jsx: 'automatic',
       define: {
-        'process.env.NODE_ENV': '"production"'
+        'process.env.NODE_ENV': '"production"',
+        '__NHITW_BUILD__': JSON.stringify(buildId)
       }
     });
 
@@ -39,11 +48,12 @@ async function bundleContentScript({sourcemap = false, minify = true} = {}) {
       minify,
       sourcemap,
       define: {
-        'process.env.NODE_ENV': '"production"'
+        'process.env.NODE_ENV': '"production"',
+        '__NHITW_BUILD__': JSON.stringify(buildId)
       }
     });
 
-    console.log('Content and background scripts bundled successfully');
+    console.log(`Content and background scripts bundled successfully (build ${buildId})`);
   } catch (error) {
     console.error('Error bundling scripts:', error);
     process.exit(1); // Exit with error code
