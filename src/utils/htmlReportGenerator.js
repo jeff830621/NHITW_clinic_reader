@@ -5,7 +5,9 @@
 
 import { parseReferenceRange } from './labProcessorModules/referenceRangeUtils.js';
 
-export function generateHtmlReport(patientName, patientId, data, patientMeta = {}) {
+export function generateHtmlReport(patientName, patientId, data, patientMeta = {}, settings = null) {
+  // 使用者在「藥物設定 → ATC5 分類」調整的群組/顏色,報告要跟著走。
+  const atc5 = resolveAtc5Config(settings);
   const now = new Date();
   const dateStr = formatDateTime(now);
 
@@ -20,8 +22,8 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
   // Build each panel
   const diagnosisHtml = buildDiagnosisPanel(data, highlightSets);
   const labPivotHtml = buildLabPivotPanel(data.labData?.rObject, patientMeta);
-  const westMedHtml = buildWestMedPanel(data.medicationData?.rObject, 100);
-  const otherWestMedHtml = buildOtherWestMedPanel(data.medicationData?.rObject, 100);
+  const westMedHtml = buildWestMedPanel(data.medicationData?.rObject, 100, atc5);
+  const otherWestMedHtml = buildOtherWestMedPanel(data.medicationData?.rObject, 100, atc5);
   const chineseMedHtml = buildChineseMedPanel(data.chinesemedData?.rObject);
   const imagingHtml = buildImagingPanel(data.imagingData?.rObject);
   const allergyHtml = buildAllergyPanel(data.allergyData?.rObject);
@@ -1762,7 +1764,9 @@ function buildCkdBadge(data, patientMeta = {}) {
 }
 
 // --- ATC5 Classification (matches extension's medicationGroups.js) ---
-const ATC5_GROUPS = {
+// 以下是「讀不到使用者設定時」的後備預設值,與原專案 medicationGroups.js 一致。
+// 實際採用的是設定頁(藥物設定 → ATC5 分類)裡的值 —— 見 resolveAtc5Config。
+const DEFAULT_ATC5_GROUPS = {
   NSAID: ['M01AA', 'M01AB', 'M01AC', 'M01AE', 'M01AG', 'M01AH'],
   ACEI: ['C09AA', 'C09BA', 'C09BB', 'C09BX'],
   ARB: ['C09CA', 'C09DA', 'C09DB', 'C09DX'],
@@ -1772,7 +1776,7 @@ const ATC5_GROUPS = {
   '\u6297\u51DD': ['B01A'], // 抗凝
 };
 
-const ATC5_COLOR_GROUPS = {
+const DEFAULT_ATC5_COLOR_GROUPS = {
   red: ['\u6297\u51DD', 'NSAID'],    // 抗凝, NSAID
   orange: ['ARB', 'ACEI', 'STATIN'],
   green: ['SGLT2', 'GLP1'],
@@ -1782,11 +1786,31 @@ const COLOR_STYLES = {
   red: { bg: '#fde8e8', border: '#e53935', text: '#b71c1c' },
   orange: { bg: '#fff3e0', border: '#fb8c00', text: '#e65100' },
   green: { bg: '#e8f5e9', border: '#43a047', text: '#1b5e20' },
+  // 未指派顏色、或關閉變色功能時使用(以前這種藥會被整筆丟掉,見下方註解)
+  neutral: { bg: '#f1f3f5', border: '#adb5bd', text: '#495057' },
 };
 
-function getAtc5Group(atcCode) {
+// 把設定頁存的 ATC5 設定整理成報告要用的形狀。任何一項壞掉或缺漏都退回預設,
+// 所以舊版設定、空物件、型別不符都不會讓報告產不出來。
+function resolveAtc5Config(settings) {
+  const src = settings || {};
+  const isPlainObject = (o) => o && typeof o === 'object' && !Array.isArray(o);
+  const groups = isPlainObject(src.atc5Groups) && Object.keys(src.atc5Groups).length
+    ? src.atc5Groups : DEFAULT_ATC5_GROUPS;
+  const colorGroups = isPlainObject(src.atc5ColorGroups) && Object.keys(src.atc5ColorGroups).length
+    ? src.atc5ColorGroups : DEFAULT_ATC5_COLOR_GROUPS;
+  return {
+    groups,
+    colorGroups,
+    // 未設定時比照原專案預設:開啟變色
+    enableColors: src.enableATC5Colors !== false,
+  };
+}
+
+function getAtc5Group(atcCode, groups) {
   if (!atcCode) return null;
-  for (const [groupName, codes] of Object.entries(ATC5_GROUPS)) {
+  for (const [groupName, codes] of Object.entries(groups || DEFAULT_ATC5_GROUPS)) {
+    if (!Array.isArray(codes)) continue;
     if (codes.some(code => code.length === 7 ? atcCode === code : atcCode.startsWith(code))) {
       return groupName;
     }
@@ -1794,11 +1818,15 @@ function getAtc5Group(atcCode) {
   return null;
 }
 
-function getColorForGroup(groupName) {
-  for (const [color, groups] of Object.entries(ATC5_COLOR_GROUPS)) {
-    if (groups.includes(groupName)) return color;
+// 回傳可用的樣式色名。群組沒被指派顏色(自訂群組很容易這樣)、指定了不認識的
+// 顏色、或使用者關閉變色時,一律用 neutral —— 重點是「該顯示的藥不能消失」。
+function getColorForGroup(groupName, colorGroups) {
+  for (const [color, groups] of Object.entries(colorGroups || DEFAULT_ATC5_COLOR_GROUPS)) {
+    if (Array.isArray(groups) && groups.includes(groupName)) {
+      return COLOR_STYLES[color] ? color : 'neutral';
+    }
   }
-  return null;
+  return 'neutral';
 }
 
 function isWithinDays(dateStr, days) {
@@ -1813,9 +1841,10 @@ function isWithinDays(dateStr, days) {
 }
 
 // --- West Med Panel (matches extension's Important Medications logic) ---
-function buildWestMedPanel(items, trackingDays) {
+function buildWestMedPanel(items, trackingDays, atc5) {
   if (!items || items.length === 0) return '<p class="empty">無西藥紀錄</p>';
   const days = trackingDays || 100;
+  const cfg = atc5 || resolveAtc5Config(null);
 
   // Step 1: Filter meds within tracking period that match ATC5 groups
   const matchedMeds = [];
@@ -1824,11 +1853,12 @@ function buildWestMedPanel(items, trackingDays) {
     if (!isWithinDays(date, days)) continue;
 
     const atcCode = m.ATC_CODE || m.drug_atc7_code || '';
-    const groupName = getAtc5Group(atcCode);
+    const groupName = getAtc5Group(atcCode, cfg.groups);
     if (!groupName) continue;
 
-    const colorName = getColorForGroup(groupName);
-    if (!colorName) continue;
+    // 以前:群組沒被指派顏色 → 整筆藥被丟掉。使用者一旦自訂群組就很容易踩到
+    // (新群組預設沒有顏色),藥會莫名其妙不見。現在改成用灰色呈現。
+    const colorName = cfg.enableColors ? getColorForGroup(groupName, cfg.colorGroups) : 'neutral';
 
     matchedMeds.push({
       name: m.MED_DESC || m.MED_ITEM || m.drug_ename || '',
@@ -1846,7 +1876,7 @@ function buildWestMedPanel(items, trackingDays) {
   if (matchedMeds.length === 0) return '<p class="empty">無關注西藥紀錄</p>';
 
   // Step 2: Group by color → group → deduplicate by name
-  const colorOrder = ['red', 'orange', 'green'];
+  const colorOrder = ['red', 'orange', 'green', 'neutral'];
   const byColor = {};
   for (const m of matchedMeds) {
     if (!byColor[m.colorName]) byColor[m.colorName] = {};
@@ -1864,7 +1894,7 @@ function buildWestMedPanel(items, trackingDays) {
   let rows = '';
   for (const color of colorOrder) {
     if (!byColor[color]) continue;
-    const style = COLOR_STYLES[color];
+    const style = COLOR_STYLES[color] || COLOR_STYLES.neutral;
     for (const [groupName, meds] of Object.entries(byColor[color])) {
       for (const med of Object.values(meds)) {
         // Sort prescriptions newest first
@@ -1889,7 +1919,7 @@ function buildWestMedPanel(items, trackingDays) {
 }
 
 // --- Other West Med Panel (meds NOT in focused ATC5 groups) ---
-function buildOtherWestMedPanel(items, trackingDays) {
+function buildOtherWestMedPanel(items, trackingDays, atc5) {
   if (!items || items.length === 0) return '<p class="empty">無西藥紀錄</p>';
   const days = trackingDays || 100;
 
@@ -1900,7 +1930,7 @@ function buildOtherWestMedPanel(items, trackingDays) {
     if (!isWithinDays(date, days)) continue;
 
     const atcCode = m.ATC_CODE || m.drug_atc7_code || '';
-    const groupName = getAtc5Group(atcCode);
+    const groupName = getAtc5Group(atcCode, (atc5 || resolveAtc5Config(null)).groups);
     if (groupName) continue; // Skip focused meds
 
     otherMeds.push({

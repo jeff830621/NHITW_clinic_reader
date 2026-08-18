@@ -518,8 +518,17 @@ async function autoExportToSharedFolder(opts) {
     }
 
     // Generate and write HTML report only (no JSON)
+    // 使用者在設定頁調整的 ATC5 分類/顏色,報告要跟著走(以前報告是另一份寫死
+    // 的複本,設定改了報告不會變)。讀不到就用預設,不影響匯出。
+    let userSettings = null;
+    try {
+      userSettings = await chrome.storage.sync.get({
+        atc5Groups: null, atc5ColorGroups: null, enableATC5Colors: true,
+      });
+    } catch (_) { /* 讀不到設定 → 報告端自動退回預設值 */ }
+
     const genStart = Date.now();
-    let html = generateHtmlReport(patientName, patientId, exportData, patientMeta);
+    let html = generateHtmlReport(patientName, patientId, exportData, patientMeta, userSettings);
     const genMs = Date.now() - genStart;
     const filename = getReportFilename(patientName);
     const session = getClinicSession(new Date());
