@@ -11,6 +11,7 @@
     "scripting",
     "clipboardWrite",
     "nativeMessaging",
+    "downloads",
     "alarms"
   ],
   "host_permissions": [

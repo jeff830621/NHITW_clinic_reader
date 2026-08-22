@@ -60,6 +60,38 @@ function getClinicSession(date) {
   return '晚診';                                    // ≥ 17:50
 }
 
+// --- 下載模式(審查/免安裝替代方案) --------------------------------------
+// 走 chrome.downloads 把報告存進「Chrome 下載資料夾/NHITW_reports/日期/診次/」。
+// 院所標準做法仍是 Native Host;此模式給無法安裝主機的環境(例如商店審查員)
+// 驗證完整功能用。不含自動清理(下載夾不是我們的地盤,不主動刪使用者檔案)。
+function downloadHtml(filename, html, dateStr, session) {
+  return new Promise((resolve, reject) => {
+    let b64;
+    try {
+      // UTF-8 → base64(btoa 只吃 latin1,先經 TextEncoder;分段避免堆疊爆掉)
+      const bytes = new TextEncoder().encode(html);
+      let bin = '';
+      const CHUNK = 0x8000;
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+      }
+      b64 = btoa(bin);
+    } catch (e) {
+      return reject(new Error('encode failed: ' + (e && e.message)));
+    }
+    chrome.downloads.download({
+      url: 'data:text/html;base64,' + b64,
+      filename: `NHITW_reports/${dateStr}/${session}/${filename}`,
+      conflictAction: 'uniquify',
+      saveAs: false,
+    }, (downloadId) => {
+      const err = chrome.runtime.lastError;
+      if (err || downloadId == null) reject(new Error(err?.message || 'download rejected'));
+      else resolve({ downloadId });
+    });
+  });
+}
+
 /**
  * Auto-export patient data to shared folder via Native Messaging Host.
  * Debounced: waits for all data types to arrive before generating HTML.
@@ -532,6 +564,9 @@ async function autoExportToSharedFolder(opts) {
     const genMs = Date.now() - genStart;
     const filename = getReportFilename(patientName);
     const session = getClinicSession(new Date());
+    // 匯出方式:'host'(預設,院所標準)或 'download'(免安裝替代方案)。
+    const exportMode = sharedFolder.exportMode === 'download' ? 'download' : 'host';
+    const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
     const originalKB = Math.round(new Blob([html]).size / 1024);
     let sizeKB = originalKB;
     console.log(`[NHITW Clinic] Generating HTML: ${filename} (${sizeKB}KB, ${Object.keys(exportData).length} data types, session=${session})`);
@@ -539,7 +574,7 @@ async function autoExportToSharedFolder(opts) {
     // Native Messaging is hard-capped near 1 MB per message. The embedded
     // <!--NHITW-DEBUG--> JSON is large (full lab records); strip it first as
     // a cheap recovery before falling back to a placeholder.
-    if (sizeKB > 900) {
+    if (exportMode === 'host' && sizeKB > 900) {
       html = stripDebugComment(html);
       sizeKB = Math.round(new Blob([html]).size / 1024);
       if (sizeKB <= 900) {
@@ -547,7 +582,7 @@ async function autoExportToSharedFolder(opts) {
       }
     }
 
-    if (sizeKB > 900) {
+    if (exportMode === 'host' && sizeKB > 900) {
       // Still too big — write a small stub so the doctor SEES something
       // missing in the shared folder, and badge the action red so they
       // notice in the popup too. Without this they'd think the export
@@ -567,12 +602,16 @@ async function autoExportToSharedFolder(opts) {
     // the 設定頁「資料保留天數」 knob used to be dead (host only ever read its
     // own config.json, hardcoded to 7 by install.bat).
     const writeStart = Date.now();
-    await writeHtml(filename, html, undefined, session, sharedFolder.retentionDays || 40);
+    if (exportMode === 'download') {
+      await downloadHtml(filename, html, todayStr, session);
+    } else {
+      await writeHtml(filename, html, undefined, session, sharedFolder.retentionDays || 40);
+    }
     const writeMs = Date.now() - writeStart;
     // 三段耗時分開報:讀取(健保雲端回資料)/ 產生 HTML / 寫入共享資料夾,
     // 外加「最後一筆資料 → 開始匯出」的等待(去抖動 + 排程延遲)。
     const waitMs = _readTiming?.lastDataAt ? Math.max(0, genStart - _readTiming.lastDataAt) : null;
-    logEvent('write.ok', `${sizeKB}KB in ${writeMs}ms`);
+    logEvent('write.ok', `${sizeKB}KB in ${writeMs}ms${exportMode === 'download' ? ' (下載模式)' : ''}`);
     logEvent('export.timing',
       `讀取 ${_readTiming ? (_readTiming.readMs / 1000).toFixed(1) + 's/' + _readTiming.types + '類' : '-'}`
       + ` | 等待 ${waitMs != null ? (waitMs / 1000).toFixed(1) + 's' : '-'}`

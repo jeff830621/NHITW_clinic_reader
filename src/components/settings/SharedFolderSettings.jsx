@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, FormControlLabel,
-  Switch, TextField, Button, Alert, Divider, Chip
+  Switch, TextField, Button, Alert, Divider, Chip,
+  Radio, RadioGroup,
 } from '@mui/material';
 import FolderSharedIcon from '@mui/icons-material/FolderShared';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -11,6 +12,7 @@ export default function SharedFolderSettings() {
   const [settings, setSettings] = useState({
     enabled: false,
     retentionDays: 40,
+    exportMode: 'host',
   });
   const [hostStatus, setHostStatus] = useState(null);
   const [saved, setSaved] = useState(false);
@@ -70,6 +72,25 @@ export default function SharedFolderSettings() {
       {settings.enabled && (
         <>
           <Divider sx={{ my: 2 }} />
+          <Typography variant="subtitle2" gutterBottom>匯出方式</Typography>
+          <RadioGroup
+            value={settings.exportMode === 'download' ? 'download' : 'host'}
+            onChange={(e) => handleChange('exportMode', e.target.value)}
+          >
+            <FormControlLabel
+              value="host"
+              control={<Radio size="small" />}
+              label="共享資料夾主機（建議）— 需執行一次 install.bat，報告直接寫入診所共享資料夾"
+            />
+            <FormControlLabel
+              value="download"
+              control={<Radio size="small" />}
+              label="瀏覽器下載 — 免安裝；報告存到 Chrome 下載資料夾的 NHITW_reports 子資料夾（不含自動清理）"
+            />
+          </RadioGroup>
+
+          {settings.exportMode !== 'download' && (<>
+          <Divider sx={{ my: 2 }} />
           <Typography variant="subtitle2" gutterBottom>資料保留天數</Typography>
           <TextField
             type="number"
@@ -100,6 +121,7 @@ export default function SharedFolderSettings() {
               請確認已執行 install.bat 並重啟瀏覽器。
             </Alert>
           )}
+          </>)}
         </>
       )}
 
