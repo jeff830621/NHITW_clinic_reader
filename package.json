@@ -1,17 +1,17 @@
 {
-  "name": "nhitw-cloud-analyzer",
+  "name": "nhitw-clinic-reader",
   "version": "25.1201.3",
-  "description": "NHITW Cloud Analyzer - 更好的健保雲端 2.0",
+  "description": "NHITW 診間報告產生器 — 查詢健保雲端時自動產生診間 HTML 報告(衍生自 NHITW Cloud Analyzer)",
   "license": "Apache-2.0",
-  "author": "The NHITW Cloud Analyzer Project Authors",
+  "author": "NHITW Clinic Reader Project (derived from the NHITW Cloud Analyzer Project, Apache 2.0)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/leescot/NHITW_cloud_analyzer_react_MUI.git"
+    "url": "https://github.com/jeff830621/NHITW_clinic_reader.git"
   },
   "bugs": {
-    "url": "https://github.com/leescot/NHITW_cloud_analyzer_react_MUI/issues"
+    "url": "https://github.com/jeff830621/NHITW_clinic_reader/issues"
   },
-  "homepage": "https://github.com/leescot/NHITW_cloud_analyzer_react_MUI",
+  "homepage": "https://github.com/jeff830621/NHITW_clinic_reader",
   "private": true,
   "type": "module",
   "scripts": {

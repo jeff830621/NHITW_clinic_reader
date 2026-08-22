@@ -57,7 +57,7 @@ const AboutTab = () => {
       <Paper elevation={1} sx={{ p: 2, mb: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
           <PeopleIcon color="primary" sx={{ mr: 1 }} />
-          <Typography variant="h6">貢獻者</Typography>
+          <Typography variant="h6">原始專案「更好的健保雲端 2.0」開發團隊（致謝）</Typography>
         </Box>
         <Divider sx={{ mb: 2 }} />
 
@@ -156,19 +156,45 @@ const AboutTab = () => {
         <Divider sx={{ mb: 2 }} />
 
         <Typography variant="body1" paragraph>
-          如有任何問題、建議或錯誤回報，請透過以下方式聯絡我們：
+          本衍生版（NHITW 診間報告產生器）的問題、建議或錯誤回報，請透過本版 GitHub 回報；原始專案事務請聯絡原作者團隊。
         </Typography>
 
         <List disablePadding>
           <ListItem>
             <ListItemText
-              primary="Email"
+              primary="本版問題回報（GitHub Issues）"
+              secondary={<Link href="https://github.com/jeff830621/NHITW_clinic_reader/issues" target="_blank" rel="noopener noreferrer">jeff830621/NHITW_clinic_reader</Link>}
+            />
+          </ListItem>
+          <ListItem>
+            <ListItemText
+              primary="原始專案 Email"
               secondary={<Link href="mailto:aszk1415@gmail.com">aszk1415@gmail.com</Link>}
             />
           </ListItem>
           <ListItem>
             <ListItemText
-              primary="GitHub"
+              primary="本版 GitHub"
+              secondary={
+                <Box sx={{ wordBreak: 'break-word' }}>
+                  <Link
+                    href="https://github.com/jeff830621/NHITW_clinic_reader"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    sx={{ display: 'flex', alignItems: 'center' }}
+                  >
+                    <GitHubIcon sx={{ mr: 0.5, fontSize: '1rem', flexShrink: 0 }} />
+                    <Typography variant="body2" component="span" sx={{ wordBreak: 'break-word', overflowWrap: 'break-word', hyphens: 'auto' }}>
+                      NHITW_clinic_reader
+                    </Typography>
+                  </Link>
+                </Box>
+              }
+            />
+          </ListItem>
+          <ListItem>
+            <ListItemText
+              primary="原始專案 GitHub（Apache 2.0）"
               secondary={
                 <Box sx={{ wordBreak: 'break-word' }}>
                   <Link
@@ -178,15 +204,7 @@ const AboutTab = () => {
                     sx={{ display: 'flex', alignItems: 'center' }}
                   >
                     <GitHubIcon sx={{ mr: 0.5, fontSize: '1rem', flexShrink: 0 }} />
-                    <Typography
-                      variant="body2"
-                      component="span"
-                      sx={{
-                        wordBreak: 'break-word',
-                        overflowWrap: 'break-word',
-                        hyphens: 'auto'
-                      }}
-                    >
+                    <Typography variant="body2" component="span" sx={{ wordBreak: 'break-word', overflowWrap: 'break-word', hyphens: 'auto' }}>
                       NHITW_cloud_analyzer_react_MUI
                     </Typography>
                   </Link>

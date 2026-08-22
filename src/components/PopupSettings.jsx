@@ -111,10 +111,10 @@ const PopupSettings = () => {
     )],
     [3, (
       <Box>
-        <Typography variant="h6" align="center" gutterBottom>贊助我們</Typography>
+        <Typography variant="h6" align="center" gutterBottom>贊助原作者團隊</Typography>
         <Typography paragraph  align="center">
-          感謝您使用「更好的健保雲端2.0」</Typography><Typography paragraph align="center">
-          如果您覺得這個工具對您醫療上有所幫助，您可以考慮贊助我們，幫助我們持續改進和維護這個專案。
+          本工具衍生自李坤峰醫師團隊的「更好的健保雲端2.0」</Typography><Typography paragraph align="center">
+          如果這個工具對您的醫療工作有幫助，歡迎贊助原作者團隊，支持他們持續開發與維護原始專案。
         </Typography>
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 2 }}>
           <Box sx={{ mb: 2, maxWidth: '200px', maxHeight: '200px' }}>
@@ -449,7 +449,7 @@ const PopupSettings = () => {
             }
           }}
         >
-          更好的健保雲端2.0
+          NHITW 診間報告產生器
           {developerMode && (
             <span style={{ fontSize: '0.8em', marginLeft: '4px' }}>
               (開發模式)
