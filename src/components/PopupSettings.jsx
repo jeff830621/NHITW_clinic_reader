@@ -18,7 +18,6 @@ import InfoIcon from '@mui/icons-material/Info';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import HelpIcon from '@mui/icons-material/Help';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import VolunteerActivismIcon from '@mui/icons-material/VolunteerActivism';
 
 // 引入標籤顏色工具函數
 import { getTabColor, getTabSelectedColor } from '../utils/tabColorUtils';
@@ -110,32 +109,6 @@ const PopupSettings = () => {
       </Box>
     )],
     [3, (
-      <Box>
-        <Typography variant="h6" align="center" gutterBottom>贊助原作者團隊</Typography>
-        <Typography paragraph  align="center">
-          本工具衍生自李坤峰醫師團隊的「更好的健保雲端2.0」</Typography><Typography paragraph align="center">
-          如果這個工具對您的醫療工作有幫助，歡迎贊助原作者團隊，支持他們持續開發與維護原始專案。
-        </Typography>
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 2 }}>
-          <Box sx={{ mb: 2, maxWidth: '200px', maxHeight: '200px' }}>
-            <img 
-              src="/images/buymeacoffee_qr.png" 
-              alt="Buy Me A Coffee QR Code"
-              style={{ width: '100%', height: 'auto', borderRadius: '8px' }}
-            />
-          </Box>
-          <Button 
-            variant="contained" 
-            color="primary"
-            startIcon={<VolunteerActivismIcon />}
-            onClick={() => chrome.tabs.create({ url: 'https://buymeacoffee.com/leescot' })}
-          >
-            前往贊助頁面
-          </Button>
-        </Box>
-      </Box>
-    )],
-    [4, (
       <Box>
         <LoadDataTab
           localDataStatus={localDataStatus}
@@ -331,7 +304,7 @@ const PopupSettings = () => {
           textColor="primary"
           sx={{
             '& .MuiTab-root': {
-              minWidth: '20%', // 5 tabs - each gets 20%
+              minWidth: '25%', // 4 tabs - each gets 25%
               padding: '6px 2px',
               fontSize: '0.87rem', // Further increased font size
               fontWeight: 'bold', // Added bold text
@@ -377,17 +350,6 @@ const PopupSettings = () => {
               color: getTabColor(generalDisplaySettings, "about"),
               "&.Mui-selected": {
                 color: getTabSelectedColor(generalDisplaySettings, "about"),
-              },
-              minHeight: '58px',
-            }}
-          />
-          <Tab
-            icon={<VolunteerActivismIcon />}
-            label="贊助"
-            sx={{
-              color: getTabColor(generalDisplaySettings, "sponsor"),
-              "&.Mui-selected": {
-                color: getTabSelectedColor(generalDisplaySettings, "sponsor"),
               },
               minHeight: '58px',
             }}
