@@ -1,0 +1,79 @@
+name: Publish to Edge Add-ons
+
+# release 分支收到新的商店 zip 時自動上傳發佈;也可手動觸發。
+# 需要三個 repo secrets(見 docs/EDGE_STORE_SUBMISSION.md 第四步):
+#   EDGE_PRODUCT_ID / EDGE_CLIENT_ID / EDGE_API_KEY
+on:
+  push:
+    branches: [release]
+    paths: ['releases/NHITW_clinic_reader_store_*.zip']
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release
+
+      - name: Pick newest store package
+        id: pick
+        run: |
+          ZIP=$(ls -1 releases/NHITW_clinic_reader_store_*.zip | sort | tail -1)
+          [ -n "$ZIP" ] || { echo "no store zip found"; exit 1; }
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "uploading: $ZIP"
+
+      - name: Upload package
+        id: upload
+        env:
+          PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: |
+          [ -n "$PRODUCT_ID" ] && [ -n "$API_KEY" ] || { echo "::error::Edge API secrets not configured (docs/EDGE_STORE_SUBMISSION.md 第四步)"; exit 1; }
+          RESP_HEADERS=$(mktemp)
+          curl -sS -D "$RESP_HEADERS" -o /dev/null \
+            -X POST \
+            -H "Authorization: ApiKey $API_KEY" \
+            -H "X-ClientID: $CLIENT_ID" \
+            -H "Content-Type: application/zip" \
+            --data-binary "@${{ steps.pick.outputs.zip }}" \
+            "https://api.addons.microsoftedge.microsoft.com/v1/products/$PRODUCT_ID/submissions/draft/package"
+          OP=$(grep -i '^Location:' "$RESP_HEADERS" | tr -d '\r' | awk '{print $2}')
+          [ -n "$OP" ] || { echo "::error::no operation id returned"; cat "$RESP_HEADERS"; exit 1; }
+          echo "operation=$OP" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for package processing
+        env:
+          PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: |
+          for i in $(seq 1 30); do
+            S=$(curl -sS \
+              -H "Authorization: ApiKey $API_KEY" \
+              -H "X-ClientID: $CLIENT_ID" \
+              "https://api.addons.microsoftedge.microsoft.com/v1/products/$PRODUCT_ID/submissions/draft/package/operations/${{ steps.upload.outputs.operation }}")
+            echo "$S"
+            echo "$S" | grep -qi '"status"\s*:\s*"Succeeded"' && exit 0
+            echo "$S" | grep -qi '"status"\s*:\s*"Failed"' && { echo "::error::package processing failed"; exit 1; }
+            sleep 10
+          done
+          echo "::error::timed out waiting for package processing"; exit 1
+
+      - name: Publish submission
+        env:
+          PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: |
+          curl -sS -f \
+            -X POST \
+            -H "Authorization: ApiKey $API_KEY" \
+            -H "X-ClientID: $CLIENT_ID" \
+            "https://api.addons.microsoftedge.microsoft.com/v1/products/$PRODUCT_ID/submissions" \
+            -d '{"notes":"automated publish"}' \
+            -H "Content-Type: application/json"
+          echo "submitted for certification — Edge 會在審查通過後自動推送給所有安裝者"

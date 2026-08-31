@@ -7,12 +7,15 @@ echo.
 
 set "INSTALL_DIR=C:\nhitw-host"
 
-set /p "SHARED_FOLDER=Enter shared folder path (default: C:\nhitw-data): "
-if "!SHARED_FOLDER!"=="" set "SHARED_FOLDER=C:\nhitw-data"
+set /p "SHARED_FOLDER=Enter shared folder path (default: \\kt-server\kthis\Chart): "
+if "!SHARED_FOLDER!"=="" set "SHARED_FOLDER=\\kt-server\kthis\Chart"
 
-set "DEFAULT_EXT_ID=kilmdgbkklopaopdfahekedadkmfpfhk"
-set /p "EXT_ID=Enter Chrome extension ID (default: %DEFAULT_EXT_ID%): "
-if "!EXT_ID!"=="" set "EXT_ID=%DEFAULT_EXT_ID%"
+REM Extension IDs allowed to talk to this host. EXT_ID_1 = the classic
+REM unpacked/dev install; EXT_ID_2 = the Edge Add-ons store build (filled in
+REM after first store submission assigns the ID). Both stay allowed so a
+REM clinic can migrate without breaking the bridge.
+set "EXT_ID_1=kilmdgbkklopaopdfahekedadkmfpfhk"
+set "EXT_ID_2="
 
 echo.
 echo [1/5] Creating install directory: %INSTALL_DIR%
@@ -26,7 +29,7 @@ echo [3/5] Writing config...
 (
 echo {
 echo   "sharedFolderPath": "!SHARED_FOLDER:\=\\!",
-echo   "retentionDays": 7
+echo   "retentionDays": 40
 echo }
 ) > "%INSTALL_DIR%\config.json"
 
@@ -45,7 +48,12 @@ echo   "description": "NHITW Clinic Reader - Shared Folder Bridge",
 echo   "path": "!LAUNCHER_PATH:\=\\!",
 echo   "type": "stdio",
 echo   "allowed_origins": [
-echo     "chrome-extension://!EXT_ID!/"
+if defined EXT_ID_2 (
+echo     "chrome-extension://!EXT_ID_1!/",
+echo     "chrome-extension://!EXT_ID_2!/"
+) else (
+echo     "chrome-extension://!EXT_ID_1!/"
+)
 echo   ]
 echo }
 ) > "%MANIFEST_PATH%"
@@ -59,7 +67,7 @@ echo ============================================
 echo  Installation complete!
 echo  Install dir:    %INSTALL_DIR%
 echo  Shared folder:  !SHARED_FOLDER!
-echo  Extension ID:   !EXT_ID!
+echo  Extension IDs:  !EXT_ID_1! !EXT_ID_2!
 echo ============================================
 echo.
 echo Run this script on BOTH the front desk and consultation room computers.
