@@ -40,29 +40,31 @@ Partner Center → Microsoft Edge → 「建立新的擴充功能」:
   原始碼:https://github.com/jeff830621/NHITW_clinic_reader
   ```
 
-### 審查員備註(英文,可直接貼)
+### 審查員備註 / Certification notes(英文,<2000 字,每次提交都必填;可直接貼)
+
+提交頁「Does a tester need credentials…」選 **Yes**(健保卡與醫事憑證無法提供),備註貼下方。
+`[VIDEO LINK]` 換成示範影片連結(遮蔽病患資料;YouTube 不公開連結即可),沒有影片就刪掉那句。
 
 ```
-This extension serves healthcare professionals at Taiwan NHI-contracted
-clinics. It only activates on medcloud2.nhi.gov.tw (Taiwan's National
-Health Insurance MediCloud system), which requires a physical NHI
-smart-card reader and healthcare-provider credentials to log in — so the
-site cannot be accessed from outside a Taiwanese clinical environment.
+IMPORTANT: no test credentials can exist for this extension.
 
-To verify core functionality WITHOUT any credentials or extra software:
-open the extension settings → 自動匯出 HTML 報告 → enable the toggle →
-choose 匯出方式 = 瀏覽器下載 (browser download mode). In this mode the
-extension writes its generated HTML report via the chrome.downloads API;
-no Native Messaging host is needed.
+It only activates on https://medcloud2.nhi.gov.tw (Taiwan National Health Insurance "MediCloud"). Login requires a physical healthcare-provider smart card, the patient's physical NHI card, and government-issued medical-institution credentials. These are legally non-transferable, so a demo account cannot be created. On any other site the extension is inert.
 
-The optional Native Messaging host (nativeMessaging permission) is a
-small open-source PowerShell script that writes the report into a
-clinic-designated shared folder and deletes expired files. Source:
-https://github.com/jeff830621/NHITW_clinic_reader/tree/claude/continue-work-Hp1Na/native-host
+WHAT TESTERS CAN VERIFY WITHOUT CREDENTIALS
+1. Install, click the toolbar icon: popup with 4 tabs (設定/資料/關於/雲端).
+2. 設定 tab > "自動匯出 HTML 報告": switch 啟用自動匯出 ON, choose 匯出方式 = 瀏覽器下載 (browser download). Zero-setup mode: reports go via chrome.downloads to the download folder under NHITW_reports/. No native host needed.
+3. 關於 tab: attribution, privacy policy, source links.
 
-No data ever leaves the user's machine. No analytics, no remote servers.
-A demo video of the full flow (with masked patient data) is available on
-request.
+WHAT IT DOES: when a clinician queries a patient on MediCloud, it compiles the returned diagnoses, medications, lab results and imaging reports into ONE self-contained HTML report and saves it to the clinic's folder, so the consulting-room PC (no MediCloud access) can read it. Demo video, masked patient data: [VIDEO LINK]
+
+PERMISSIONS
+- nativeMessaging: optional mode writing the report to a clinic shared folder via a small open-source PowerShell host (github.com/jeff830621/NHITW_clinic_reader/tree/feat/clinic-reader/native-host). Not needed in download mode.
+- downloads: the browser-download mode above.
+- webRequest (observe only), scripting, storage, alarms, clipboardWrite: detect MediCloud API responses, inject UI on that site only, keep settings, debounce export, copy lab values.
+- Host drugtw.com: optional drug-image lookup, OFF by default; sends a drug code only, never patient data.
+
+PRIVACY: all data stays on the user's machine; nothing is sent to the developer or any server; no analytics. Policy: github.com/jeff830621/NHITW_clinic_reader/blob/feat/clinic-reader/PRIVACY.md
+Full source: github.com/jeff830621/NHITW_clinic_reader
 ```
 
 ## 第三步:上架完成後,回報兩個東西給 Claude
