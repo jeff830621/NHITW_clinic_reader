@@ -1710,9 +1710,21 @@ function parseLabGfr(v) {
   const n = parseFloat(m[0]);
   return isNaN(n) ? null : n;
 }
+// CKD 專案只採計「最近六個月內」的檢驗。太久以前的數據不給報 —— 就算是最新
+// 的一筆,只要超過 180 天就視同沒有,不亮 badge。過濾在入口做一次,下游的
+// Cr / 檢驗報告 eGFR / 蛋白尿判定就全部自動只看六個月內的資料。
+const CKD_WINDOW_DAYS = 180;
+
+function labWithinDays(labData, days) {
+  if (!labData?.rObject) return labData;
+  const rows = labData.rObject.filter(l => isWithinDays(l.real_inspect_date || l.recipe_date || '', days));
+  return { ...labData, rObject: rows };
+}
+
 function buildCkdBadge(data, patientMeta = {}) {
-  const cr = getLatestLabValue(data?.labData, 'Cr');
-  const labGfrRec = getLatestLabValue(data?.labData, 'GFR');
+  const recentLab = labWithinDays(data?.labData, CKD_WINDOW_DAYS);
+  const cr = getLatestLabValue(recentLab, 'Cr');
+  const labGfrRec = getLatestLabValue(recentLab, 'GFR');
   const labGfr = labGfrRec ? parseLabGfr(labGfrRec.value) : null;
 
   const age = patientMeta?.age;
@@ -1749,17 +1761,17 @@ function buildCkdBadge(data, patientMeta = {}) {
 
   // <60 (G3a/b/4/5) — eligible regardless of proteinuria
   if (egfr < 60) {
-    const tip = `eGFR ${egfr.toFixed(1)} mL/min/1.73m² (${stage})，符合中醫慢性腎臟病門診加強照護計畫\n依據：${basis} @ ${basisDate}\n需主診斷 ICD-10 N18.2-N18.6`;
+    const tip = `eGFR ${egfr.toFixed(1)} mL/min/1.73m² (${stage})，符合中醫慢性腎臟病門診加強照護計畫\n依據：${basis} @ ${basisDate}（僅採計 ${CKD_WINDOW_DAYS} 天內檢驗）\n需主診斷 ICD-10 N18.2-N18.6`;
     return `<span class="ckd-badge ckd-eligible" title="${esc(tip)}">🫘 CKD 收案 (${stage})</span>`;
   }
 
   // G2 (60-89.9) — needs proteinuria/hematuria
-  const prot = findAbnormalProteinuria(data?.labData);
+  const prot = findAbnormalProteinuria(recentLab);
   if (prot) {
     const tip = `eGFR ${egfr.toFixed(1)} (${stage}) + ${prot.name}=${prot.value} 超標 (參考 ${prot.ref || '無'}) @ ${prot.date}\n符合 stage 2 收案條件 — 需主診斷 ICD-10 N18.2-N18.6\n依據：${basis}`;
     return `<span class="ckd-badge ckd-eligible" title="${esc(tip)}">🫘 CKD 收案 (stage 2 + 蛋白尿)</span>`;
   }
-  const tip = `eGFR ${egfr.toFixed(1)} (${stage})；stage 2 收案需 UPCR≥150 mg/g、UACR≥30 mg/g（糖尿病）或血尿，請臨床判斷\n依據：${basis} @ ${basisDate}`;
+  const tip = `eGFR ${egfr.toFixed(1)} (${stage})；stage 2 收案需 UPCR≥150 mg/g、UACR≥30 mg/g（糖尿病）或血尿，請臨床判斷\n依據：${basis} @ ${basisDate}（僅採計 ${CKD_WINDOW_DAYS} 天內檢驗）`;
   return `<span class="ckd-badge ckd-watch" title="${esc(tip)}">🫘 CKD 待確認 (stage 2)</span>`;
 }
 
