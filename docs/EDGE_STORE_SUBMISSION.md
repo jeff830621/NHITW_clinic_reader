@@ -79,7 +79,22 @@ Full source: github.com/jeff830621/NHITW_clinic_reader
    → 我會把它填進 install.bat 的 `EXT_ID_2`,發新版主機安裝包
 2. 商店連結(hidden 模式下的直接安裝連結)→ 放進院所教學
 
-## 第四步:開通全自動發佈(一次性)
+## 第四步:開通全自動發佈 ✅(2026-09-15 已完成並實測成功)
+
+自動線已通:GitHub Actions run #3 上傳 v2026.9.15 → 微軟處理成功 → 送審成功
+(submission 1152921505701897209)。之後的發版流程(由 Claude 一個指令完成):
+
+1. `node scripts/bump-version.mjs && npm run build`
+2. `bash scripts/package-store.sh` → 商店包放上 release 分支 `releases/`
+3. 把檔名寫進 `.github/edge-publish.trigger` 並推送工作分支 → Actions 自動上傳、送審
+4. 微軟審核通過 → 各院所 Edge 自動更新
+
+> ⚠️ 設定 secrets 時的兩個坑(第一次都踩到了,workflow 已加防呆):
+> - **Product ID ≠ 商店擴充套件 ID**。Product ID 是 Partner Center 產品頁網址
+>   `/microsoftedge/【這段】/packages/` 裡的 36 碼 GUID;商店網址最後那 32 碼是擴充套件 ID,不是它。
+> - 貼值時容易夾帶換行;workflow 現在會自動修剪並檢查格式。
+
+### (原始設定步驟,保留備查)
 
 1. Partner Center → Publish API 頁 → **Create API credentials**
    → 得到 Client ID 與 API key
