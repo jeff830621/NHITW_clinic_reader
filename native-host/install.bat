@@ -22,7 +22,7 @@ REM unpacked/dev install; EXT_ID_2 = the Edge Add-ons store build (filled in
 REM after first store submission assigns the ID). Both stay allowed so a
 REM clinic can migrate without breaking the bridge.
 set "EXT_ID_1=kilmdgbkklopaopdfahekedadkmfpfhk"
-set "EXT_ID_2="
+set "EXT_ID_2=ffopjenekhkampkfckmbegbglnebhjib"
 
 echo.
 echo [1/5] Creating install directory: %INSTALL_DIR%

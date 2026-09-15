@@ -67,7 +67,13 @@ PRIVACY: all data stays on the user's machine; nothing is sent to the developer 
 Full source: github.com/jeff830621/NHITW_clinic_reader
 ```
 
-## 第三步:上架完成後,回報兩個東西給 Claude
+## 第三步:上架完成 ✅(2026-09-15)
+
+- 商店連結:https://microsoftedge.microsoft.com/addons/detail/ffopjenekhkampkfckmbegbglnebhjib
+- 商店指派的擴充套件 ID:`ffopjenekhkampkfckmbegbglnebhjib`(已寫入 install.bat 的 `EXT_ID_2`)
+- 舊未封裝 ID `kilmdgbkklopaopdfahekedadkmfpfhk` 仍保留在 `EXT_ID_1`,兩者並行,院所可逐家遷移
+
+## (原第三步)上架完成後,回報兩個東西給 Claude
 
 1. **商店指派的擴充套件 ID**(商店頁網址最後一段,或 edge://extensions 裡看)
    → 我會把它填進 install.bat 的 `EXT_ID_2`,發新版主機安裝包
