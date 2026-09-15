@@ -7,8 +7,15 @@ echo.
 
 set "INSTALL_DIR=C:\nhitw-host"
 
-set /p "SHARED_FOLDER=Enter shared folder path (default: \\kt-server\kthis\Chart): "
-if "!SHARED_FOLDER!"=="" set "SHARED_FOLDER=\\kt-server\kthis\Chart"
+REM Re-running the installer (e.g. to pick up a new extension ID) must not force
+REM the clinic to retype its shared-folder path: reuse the one already saved in
+REM config.json as the default, so the re-run is just "press Enter".
+set "DEFAULT_FOLDER=\\kt-server\kthis\Chart"
+if exist "%INSTALL_DIR%\config.json" (
+    for /f "usebackq delims=" %%p in (`powershell -NoProfile -Command "(Get-Content '%INSTALL_DIR%\config.json' -Raw | ConvertFrom-Json).sharedFolderPath"`) do set "DEFAULT_FOLDER=%%p"
+)
+set /p "SHARED_FOLDER=Enter shared folder path (default: !DEFAULT_FOLDER!): "
+if "!SHARED_FOLDER!"=="" set "SHARED_FOLDER=!DEFAULT_FOLDER!"
 
 REM Extension IDs allowed to talk to this host. EXT_ID_1 = the classic
 REM unpacked/dev install; EXT_ID_2 = the Edge Add-ons store build (filled in
