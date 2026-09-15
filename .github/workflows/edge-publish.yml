@@ -5,10 +5,14 @@ name: Publish to Edge Add-ons
 # 取最新一個上傳並送審;審查備註取自本分支 docs/certification-notes.txt。
 # 需要三個 repo secrets:EDGE_PRODUCT_ID / EDGE_CLIENT_ID / EDGE_API_KEY
 on:
+  # 發版:把要上架的商店包檔名寫進 .github/edge-publish.trigger 後推送,即自動發佈。
+  push:
+    branches: [claude/continue-work-Hp1Na]
+    paths: ['.github/edge-publish.trigger']
   workflow_dispatch:
     inputs:
       zip:
-        description: '指定商店包檔名(留空 = release 分支上最新的)'
+        description: '指定商店包檔名(留空 = 讀 .github/edge-publish.trigger,再空 = release 最新)'
         required: false
         default: ''
 
@@ -28,8 +32,10 @@ jobs:
       - name: Pick store package
         id: pick
         run: |
-          if [ -n "${{ github.event.inputs.zip }}" ]; then
-            ZIP="rel/releases/${{ github.event.inputs.zip }}"
+          NAME="${{ github.event.inputs.zip }}"
+          [ -z "$NAME" ] && [ -f .github/edge-publish.trigger ] && NAME=$(grep -v '^#' .github/edge-publish.trigger | tr -d ' \r\n')
+          if [ -n "$NAME" ]; then
+            ZIP="rel/releases/$NAME"
           else
             ZIP=$(ls -1 rel/releases/NHITW_clinic_reader_store_*.zip | sort -V | tail -1)
           fi
