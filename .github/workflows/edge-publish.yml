@@ -44,20 +44,29 @@ jobs:
           echo "version: $(unzip -p "$ZIP" manifest.json | python3 -c 'import json,sys;print(json.load(sys.stdin)["version"])')"
           echo "uploading: $ZIP"
 
+      # 貼進 GitHub Secrets 的值常會夾帶換行或空白(第一次執行就是 Product ID
+      # 開頭多了一個換行,網址因此壞掉)。這裡一律去除空白後再交給後續步驟,
+      # 並檢查 Product ID 是否為 36 碼 GUID。修剪後的值先登記為遮罩,不會出現在 log。
       - name: Check secrets
+        id: sec
         env:
           P: ${{ secrets.EDGE_PRODUCT_ID }}
           C: ${{ secrets.EDGE_CLIENT_ID }}
           K: ${{ secrets.EDGE_API_KEY }}
         run: |
+          P=$(printf '%s' "$P" | tr -d '[:space:]'); C=$(printf '%s' "$C" | tr -d '[:space:]'); K=$(printf '%s' "$K" | tr -d '[:space:]')
+          echo "::add-mask::$P"; echo "::add-mask::$C"; echo "::add-mask::$K"
           [ -n "$P" ] && [ -n "$C" ] && [ -n "$K" ] || { echo "::error::EDGE_PRODUCT_ID / EDGE_CLIENT_ID / EDGE_API_KEY 未設定(見 docs/EDGE_STORE_SUBMISSION.md 第四步)"; exit 1; }
+          echo "$P" | grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' || { echo "::error::EDGE_PRODUCT_ID 格式不對(長度 ${#P})—— 應為 Partner Center 產品頁網址中的 36 碼 GUID,例如 …/products/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/…"; exit 1; }
+          echo "$C" | grep -Eq '^[0-9a-fA-F-]{36}$' || echo "::warning::EDGE_CLIENT_ID 長度 ${#C},看起來不像 GUID,請確認"
+          echo "p=$P" >> "$GITHUB_OUTPUT"; echo "c=$C" >> "$GITHUB_OUTPUT"; echo "k=$K" >> "$GITHUB_OUTPUT"
 
       - name: Upload package
         id: upload
         env:
-          P: ${{ secrets.EDGE_PRODUCT_ID }}
-          C: ${{ secrets.EDGE_CLIENT_ID }}
-          K: ${{ secrets.EDGE_API_KEY }}
+          P: ${{ steps.sec.outputs.p }}
+          C: ${{ steps.sec.outputs.c }}
+          K: ${{ steps.sec.outputs.k }}
         run: |
           H=$(mktemp)
           CODE=$(curl -sS -o /dev/null -w '%{http_code}' -D "$H" -X POST \
@@ -71,9 +80,9 @@ jobs:
 
       - name: Wait for package processing
         env:
-          P: ${{ secrets.EDGE_PRODUCT_ID }}
-          C: ${{ secrets.EDGE_CLIENT_ID }}
-          K: ${{ secrets.EDGE_API_KEY }}
+          P: ${{ steps.sec.outputs.p }}
+          C: ${{ steps.sec.outputs.c }}
+          K: ${{ steps.sec.outputs.k }}
         run: |
           for i in $(seq 1 40); do
             S=$(curl -sS -H "Authorization: ApiKey $K" -H "X-ClientID: $C" \
@@ -88,9 +97,9 @@ jobs:
       - name: Publish (submit for certification)
         id: publish
         env:
-          P: ${{ secrets.EDGE_PRODUCT_ID }}
-          C: ${{ secrets.EDGE_CLIENT_ID }}
-          K: ${{ secrets.EDGE_API_KEY }}
+          P: ${{ steps.sec.outputs.p }}
+          C: ${{ steps.sec.outputs.c }}
+          K: ${{ steps.sec.outputs.k }}
         run: |
           BODY=$(jq -Rs '{notes: .}' docs/certification-notes.txt)
           H=$(mktemp)
@@ -104,9 +113,9 @@ jobs:
 
       - name: Wait for publish acceptance
         env:
-          P: ${{ secrets.EDGE_PRODUCT_ID }}
-          C: ${{ secrets.EDGE_CLIENT_ID }}
-          K: ${{ secrets.EDGE_API_KEY }}
+          P: ${{ steps.sec.outputs.p }}
+          C: ${{ steps.sec.outputs.c }}
+          K: ${{ steps.sec.outputs.k }}
         run: |
           [ -n "${{ steps.publish.outputs.operation }}" ] || { echo "no operation id; submitted"; exit 0; }
           for i in $(seq 1 20); do
