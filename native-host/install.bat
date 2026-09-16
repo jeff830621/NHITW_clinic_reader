@@ -24,7 +24,7 @@ REM   EXT_ID_2 = Edge Add-ons store build
 REM   EXT_ID_3 = Chrome Web Store build (filled in once the store assigns it)
 set "EXT_ID_1=kilmdgbkklopaopdfahekedadkmfpfhk"
 set "EXT_ID_2=ffopjenekhkampkfckmbegbglnebhjib"
-set "EXT_ID_3="
+set "EXT_ID_3=dapepocdemfppmbpflflkeaemkjigkag"
 
 echo.
 echo [1/5] Creating install directory: %INSTALL_DIR%

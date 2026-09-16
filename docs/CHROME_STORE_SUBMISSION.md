@@ -1,5 +1,8 @@
 # Chrome Web Store 上架指南(未列出 unlisted;一次手動,之後全自動)
 
+> 已提交(2026-09-16)。項目 ID:`dapepocdemfppmbpflflkeaemkjigkag`(已寫入 install.bat `EXT_ID_3`)
+> 商店連結:https://chromewebstore.google.com/detail/dapepocdemfppmbpflflkeaemkjigkag
+
 **同一個商店包 zip 同時用於 Edge 與 Chrome**(`NHITW_clinic_reader_store_v<版本>.zip`)。
 
 ## 第一步:建立項目、上傳
