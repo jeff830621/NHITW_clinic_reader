@@ -17,12 +17,14 @@ if exist "%INSTALL_DIR%\config.json" (
 set /p "SHARED_FOLDER=Enter shared folder path (default: !DEFAULT_FOLDER!): "
 if "!SHARED_FOLDER!"=="" set "SHARED_FOLDER=!DEFAULT_FOLDER!"
 
-REM Extension IDs allowed to talk to this host. EXT_ID_1 = the classic
-REM unpacked/dev install; EXT_ID_2 = the Edge Add-ons store build (filled in
-REM after first store submission assigns the ID). Both stay allowed so a
-REM clinic can migrate without breaking the bridge.
+REM Extension IDs allowed to talk to this host. All stay allowed so a clinic
+REM can migrate between install methods without breaking the bridge.
+REM   EXT_ID_1 = classic unpacked/dev install
+REM   EXT_ID_2 = Edge Add-ons store build
+REM   EXT_ID_3 = Chrome Web Store build (filled in once the store assigns it)
 set "EXT_ID_1=kilmdgbkklopaopdfahekedadkmfpfhk"
 set "EXT_ID_2=ffopjenekhkampkfckmbegbglnebhjib"
+set "EXT_ID_3="
 
 echo.
 echo [1/5] Creating install directory: %INSTALL_DIR%
@@ -55,12 +57,14 @@ echo   "description": "NHITW Clinic Reader - Shared Folder Bridge",
 echo   "path": "!LAUNCHER_PATH:\=\\!",
 echo   "type": "stdio",
 echo   "allowed_origins": [
-if defined EXT_ID_2 (
-echo     "chrome-extension://!EXT_ID_1!/",
-echo     "chrome-extension://!EXT_ID_2!/"
-) else (
-echo     "chrome-extension://!EXT_ID_1!/"
+set "ORIGINS="
+for %%I in ("!EXT_ID_1!" "!EXT_ID_2!" "!EXT_ID_3!") do (
+    if not "%%~I"=="" (
+        if defined ORIGINS (set "ORIGINS=!ORIGINS!,") 
+        set "ORIGINS=!ORIGINS!    "chrome-extension://%%~I/""
+    )
 )
+echo !ORIGINS!
 echo   ]
 echo }
 ) > "%MANIFEST_PATH%"
@@ -74,7 +78,7 @@ echo ============================================
 echo  Installation complete!
 echo  Install dir:    %INSTALL_DIR%
 echo  Shared folder:  !SHARED_FOLDER!
-echo  Extension IDs:  !EXT_ID_1! !EXT_ID_2!
+echo  Extension IDs:  !EXT_ID_1! !EXT_ID_2! !EXT_ID_3!
 echo ============================================
 echo.
 echo Run this script on BOTH the front desk and consultation room computers.

@@ -63,7 +63,7 @@ export function generateHtmlReport(patientName, patientId, data, patientMeta = {
   if (acuBadgeHtml) projectNotes.push('⚠ 複雜針灸：申報時主訴應有其診斷相關病情變化敘述');
   if (asthmaBadgeHtml) projectNotes.push('⚠ 氣喘專案：需有西醫氣喘診斷書才能收案');
   if (cancerBadgeHtml) projectNotes.push('⚠ 癌症專案：需在重大傷病卡有效期間、以重大傷病身分就醫才能收案');
-  if (obstBadgeHtml) projectNotes.push('🤰 孕產專案：病患近一年曾於西醫院所看過孕產相關問題，可依患者目前是否尚有其需求，評估是否可收孕產專案');
+  if (obstBadgeHtml) projectNotes.push('🤰 孕產專案：病患近一年曾於醫療院所看過孕產相關問題，可依患者目前是否尚有其需求，評估是否可收孕產專案');
   if (cmLeft > 0) projectNotes.push('💊 餘藥提醒：病患尚有中藥處方未服用完畢，建議參酌前次處方，衡量是否要提早開藥');
   const projectNotesHtml = projectNotes.length
     ? `<div class="project-notes">${projectNotes.map(n => `<span class="project-note">${esc(n)}</span>`).join('')}</div>`
