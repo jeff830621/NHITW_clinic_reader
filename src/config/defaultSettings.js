@@ -122,6 +122,9 @@ export const DEFAULT_SETTINGS = {
 
   sharedFolder: {
     enabled: false,
-    retentionDays: 7,
+    retentionDays: 40,
+    // 'host' = Native Messaging 主機寫入共享資料夾(院所標準做法)
+    // 'download' = 瀏覽器下載(免安裝替代方案;檔案進 Chrome 下載資料夾)
+    exportMode: 'host',
   },
 };
