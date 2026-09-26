@@ -86,7 +86,7 @@ Full source: github.com/jeff830621/NHITW_clinic_reader
 
 1. `node scripts/bump-version.mjs && npm run build`
 2. `bash scripts/package-store.sh` → 商店包放上 release 分支 `releases/`
-3. 把檔名寫進 `.github/edge-publish.trigger` 並推送工作分支 → Actions 自動上傳、送審
+3. 把檔名寫進 `.github/publish.trigger`(Edge + Chrome 同時發佈) 並推送工作分支 → Actions 自動上傳、送審
 4. 微軟審核通過 → 各院所 Edge 自動更新
 
 > ⚠️ 設定 secrets 時的兩個坑(第一次都踩到了,workflow 已加防呆):

@@ -65,6 +65,6 @@ Chrome 用 OAuth,比 Edge 多幾步:
    - `CWS_EXTENSION_ID`(第一步的 32 碼項目 ID)
    - `CWS_CLIENT_ID`、`CWS_CLIENT_SECRET`(第 4 步)
    - `CWS_REFRESH_TOKEN`(第 5 步)
-7. 完成。之後發版時 Claude 推送 `.github/chrome-publish.trigger` 即自動上傳送審。
+7. 完成。之後發版時 Claude 推送 `.github/publish.trigger`(Edge + Chrome 同時發佈) 即自動上傳送審。
 
 > 注意:OAuth 同意畫面若停留在「測試」狀態,refresh token 會在 7 天後失效。到「OAuth 同意畫面」按「發布應用程式」(僅自己使用,不需 Google 驗證)即可長期有效。
