@@ -8,6 +8,9 @@
 set -e
 OUT="$1"; [ -z "$OUT" ] && { echo "usage: $0 out.zip"; exit 1; }
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DV=$(python3 -c "import json;print(json.load(open('$ROOT/dist/manifest.json'))['version'])")
+PV=$(python3 -c "import json;print(json.load(open('$ROOT/public/manifest.json'))['version'])")
+[ "$DV" = "$PV" ] || { echo "!! dist 版本 $DV ≠ manifest 版本 $PV —— build 沒有成功,先 npm install && npm run build"; exit 1; }
 STAGE="$(mktemp -d)"
 mkdir -p "$STAGE/NHITW_clinic_reader/dist" "$STAGE/NHITW_clinic_reader/native-host"
 cp -r "$ROOT/dist/." "$STAGE/NHITW_clinic_reader/dist/"
