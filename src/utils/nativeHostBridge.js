@@ -12,8 +12,21 @@ function sendNativeMessage(message) {
       const port = chrome.runtime.connectNative(HOST_NAME);
       let responded = false;
 
+      // A hung host (share offline mid-write, AV lock) used to leave this
+      // promise pending forever — the export wedged with no error and the open
+      // port kept the worker alive. Bound it.
+      const timer = setTimeout(() => {
+        if (!responded) {
+          responded = true;
+          try { port.disconnect(); } catch (_) {}
+          reject(new Error("NATIVE_HOST_TIMEOUT: 主機 20 秒未回應（共享資料夾離線或檔案被鎖定？）"));
+        }
+      }, 20000);
+
       port.onMessage.addListener((response) => {
+        if (responded) return;
         responded = true;
+        clearTimeout(timer);
         port.disconnect();
         if (response.success) {
           resolve(response);
@@ -24,6 +37,8 @@ function sendNativeMessage(message) {
 
       port.onDisconnect.addListener(() => {
         if (!responded) {
+          responded = true;
+          clearTimeout(timer);
           const error = chrome.runtime.lastError?.message || "Native host disconnected";
           reject(new Error(error));
         }
@@ -63,13 +78,21 @@ export async function readPatient(filename, date) {
 
 /**
  * Write an HTML report file to the shared folder.
+ * @param {string} filename - basename only (e.g. "王小明_20260525_1030.html")
+ * @param {string} content  - full HTML
+ * @param {string} [date]   - "yyyy-MM-dd" date folder; defaults to host today
+ * @param {string} [session] - "早診"/"午診"/"晚診" subfolder under date folder
+ * @param {number} [retentionDays] - settings-page 保留天數; host cleans expired
+ *   date folders with THIS value after the write (falls back to its config.json)
  */
-export async function writeHtml(filename, content, date) {
+export async function writeHtml(filename, content, date, session, retentionDays) {
   return sendNativeMessage({
     action: "write_html",
     filename: filename,
     content: content,
     date: date || undefined,
+    session: session || undefined,
+    retentionDays: retentionDays || undefined,
   });
 }
 

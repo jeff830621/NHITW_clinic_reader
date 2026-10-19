@@ -7,12 +7,24 @@ echo.
 
 set "INSTALL_DIR=C:\nhitw-host"
 
-set /p "SHARED_FOLDER=Enter shared folder path (default: C:\nhitw-data): "
-if "!SHARED_FOLDER!"=="" set "SHARED_FOLDER=C:\nhitw-data"
+REM Re-running the installer (e.g. to pick up a new extension ID) must not force
+REM the clinic to retype its shared-folder path: reuse the one already saved in
+REM config.json as the default, so the re-run is just "press Enter".
+set "DEFAULT_FOLDER=\\kt-server\kthis\Chart"
+if exist "%INSTALL_DIR%\config.json" (
+    for /f "usebackq delims=" %%p in (`powershell -NoProfile -Command "(Get-Content '%INSTALL_DIR%\config.json' -Raw | ConvertFrom-Json).sharedFolderPath"`) do set "DEFAULT_FOLDER=%%p"
+)
+set /p "SHARED_FOLDER=Enter shared folder path (default: !DEFAULT_FOLDER!): "
+if "!SHARED_FOLDER!"=="" set "SHARED_FOLDER=!DEFAULT_FOLDER!"
 
-set "DEFAULT_EXT_ID=kilmdgbkklopaopdfahekedadkmfpfhk"
-set /p "EXT_ID=Enter Chrome extension ID (default: %DEFAULT_EXT_ID%): "
-if "!EXT_ID!"=="" set "EXT_ID=%DEFAULT_EXT_ID%"
+REM Extension IDs allowed to talk to this host. All stay allowed so a clinic
+REM can migrate between install methods without breaking the bridge.
+REM   EXT_ID_1 = classic unpacked/dev install
+REM   EXT_ID_2 = Edge Add-ons store build
+REM   EXT_ID_3 = Chrome Web Store build (filled in once the store assigns it)
+set "EXT_ID_1=kilmdgbkklopaopdfahekedadkmfpfhk"
+set "EXT_ID_2=ffopjenekhkampkfckmbegbglnebhjib"
+set "EXT_ID_3=dapepocdemfppmbpflflkeaemkjigkag"
 
 echo.
 echo [1/5] Creating install directory: %INSTALL_DIR%
@@ -26,7 +38,7 @@ echo [3/5] Writing config...
 (
 echo {
 echo   "sharedFolderPath": "!SHARED_FOLDER:\=\\!",
-echo   "retentionDays": 7
+echo   "retentionDays": 40
 echo }
 ) > "%INSTALL_DIR%\config.json"
 
@@ -45,7 +57,14 @@ echo   "description": "NHITW Clinic Reader - Shared Folder Bridge",
 echo   "path": "!LAUNCHER_PATH:\=\\!",
 echo   "type": "stdio",
 echo   "allowed_origins": [
-echo     "chrome-extension://!EXT_ID!/"
+set "ORIGINS="
+for %%I in ("!EXT_ID_1!" "!EXT_ID_2!" "!EXT_ID_3!") do (
+    if not "%%~I"=="" (
+        if defined ORIGINS (set "ORIGINS=!ORIGINS!,") 
+        set "ORIGINS=!ORIGINS!    "chrome-extension://%%~I/""
+    )
+)
+echo !ORIGINS!
 echo   ]
 echo }
 ) > "%MANIFEST_PATH%"
@@ -59,7 +78,7 @@ echo ============================================
 echo  Installation complete!
 echo  Install dir:    %INSTALL_DIR%
 echo  Shared folder:  !SHARED_FOLDER!
-echo  Extension ID:   !EXT_ID!
+echo  Extension IDs:  !EXT_ID_1! !EXT_ID_2! !EXT_ID_3!
 echo ============================================
 echo.
 echo Run this script on BOTH the front desk and consultation room computers.

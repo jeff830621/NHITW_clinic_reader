@@ -71,3 +71,6 @@ zip/
 
 # Claude Code configuration
 CLAUDE.md
+
+# Claude Design 組裝成品(可由 .dc.html 工作檔重新組裝)
+design-icon/nhitw-icon-design.html

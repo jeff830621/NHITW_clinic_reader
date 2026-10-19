@@ -19,13 +19,24 @@ window.lastInterceptedAdultHealthCheckData = null; // 新增成人預防保健�
 window.lastInterceptedCancerScreeningData = null; // 新增四癌篩檢結果資料
 window.lastInterceptedHbcvdata = null; // 新增B、C肝炎專區資料
 // window.lastInterceptedRehabilitationData = null; // 新增復健資料
-// window.lastInterceptedAcupunctureData = null; // 新增針灸資料
+window.lastInterceptedAcupunctureData = null; // 針灸治療資料 (imue0100)
 // window.lastInterceptedSpecialChineseMedCareData = null; // 新增特殊中醫處置資料
 
 // 新增: 使用者資訊快取
 let cachedUserInfo = null;
 let lastUserInfoExtractTime = 0;
 const USER_INFO_CACHE_DURATION = 5000; // 5秒內不重複提取令牌
+
+// PHI masking for console logs — preserves enough characters to be useful
+// when debugging without exposing the full name / ID in browser logs.
+//   maskPii('許朝慶', 1, 1)        → '許*慶'
+//   maskPii('P122726079', 4, 3)   → 'P122***079'
+function maskPii(s, prefix = 1, suffix = 1) {
+  if (s == null) return '';
+  const str = String(s);
+  if (str.length <= prefix + suffix) return str;
+  return str.slice(0, prefix) + '*'.repeat(Math.min(3, str.length - prefix - suffix)) + str.slice(-suffix);
+}
 
 let isMonitoring = false;
 let lastSuccessfulRequestHeaders = null;
@@ -42,6 +53,10 @@ const DATA_CLEAR_COOLDOWN = 2000; // 2秒內不重複清除資料
 let isBatchFetchInProgress = false;
 
 let isDataFetchingStarted = false;
+
+// 每個資料類型最後一次的健保雲端回應耗時(ms),隨 save*Data 一起送給背景
+// 腳本,匯出診斷時就能區分「健保慢」還是「我們慢」。
+const lastFetchMs = {};
 
 let pendingRequests = {
   medication: false,
@@ -288,6 +303,10 @@ async function checkAndInitUserSession() {
         if (isNewSession) {
           performClearPreviousData();
           currentPatientId = userInfo; // 更新當前病人標識
+          // 換卡後所有 save* 訊息的 userSession 標籤必須立即用新會話 — 這行
+          // 以前只在「同會話」分支賦值,導致換卡瞬間的訊息帶舊標籤,背景收到
+          // 後誤判會話又變了 → 清資料乒乓、暫存資料被誤刪(audit finding #10)
+          currentUserSession = userInfo;
           chrome.storage.local.set({ currentUserSession: userInfo }, () => {
             chrome.runtime.sendMessage({
               action: "userSessionChanged",
@@ -335,6 +354,18 @@ function performClearPreviousData() {
   lastDataClearTime = currentTime;
   console.log("Clearing previous data due to new session or card change");
 
+  // PHI hygiene: legacyContent writes the full patient payload to
+  // localStorage('NHITW_DATA') for the FloatingIcon UI to read. That key was
+  // never being cleared on logout / card change, so the previous patient's
+  // labs / meds stayed visible to anyone who opened DevTools on the medcloud
+  // tab. Drop it here along with any token fallbacks the JWT capture path
+  // may have stashed.
+  try {
+    localStorage.removeItem('NHITW_DATA');
+    localStorage.removeItem('jwt_token');
+    localStorage.removeItem('nhi_extractor_token');
+  } catch (_) { /* private mode / SecurityError — ignore */ }
+
   // 清除擴展儲存數據
   chrome.storage.local.remove(
     ["medicationData", "labData", "patientSummaryData"],
@@ -359,8 +390,8 @@ function performClearPreviousData() {
       lastInterceptedAdultHealthCheckData = null;
       lastInterceptedCancerScreeningData = null;
       lastInterceptedHbcvdata = null;
+      window.lastInterceptedAcupunctureData = null;
       // lastInterceptedRehabilitationData = null;
-      // lastInterceptedAcupunctureData = null;
       // lastInterceptedSpecialChineseMedCareData = null;
     }
   );
@@ -391,7 +422,13 @@ async function extractUserInfo() {
   try {
     const token = extractAuthorizationToken();
     if (token) {
-      const payload = JSON.parse(atob(token.split(".")[1])); // 解碼 JWT payload
+      // NHI JWT uses base64url without padding — bare atob() throws on it
+      const rawTok = token.startsWith("Bearer ") ? token.slice(7) : token;
+      let b64 = rawTok.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      while (b64.length % 4) b64 += "=";
+      const payload = JSON.parse(decodeURIComponent(
+        atob(b64).split("").map(c => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2)).join("")
+      ));
       const userId = payload.UserID; // 提取 UserID（健保卡號）
       if (userId) {
         // console.log("Extracted UserID from token:", userId);
@@ -527,8 +564,8 @@ const DataProcessor = {
     ["adultHealthCheck", "/imu/api/imue0140/imue0140s01/hpa-data"],
     ["cancerScreening", "/imu/api/imue0150/imue0150s01/hpa-data"],
     ["hbcvdata", "/imu/api/imue0180/imue0180s01/hbcv-data"],
+    ["acupuncture", "/imu/api/imue0160/imue0160s02/get-data"],
     // ["rehabilitation", "/imu/api/imue0080/imue0080s02/get-data"],
-    // ["acupuncture", "/imu/api/imue0100/imue0100s02/get-data"],
     // ["specialChineseMedCare", "/imu/api/imue0170/imue0170s02/get-data"]
   ]),
 
@@ -548,8 +585,8 @@ const DataProcessor = {
     ["adultHealthCheck", "lastInterceptedAdultHealthCheckData"],
     ["cancerScreening", "lastInterceptedCancerScreeningData"],
     ["hbcvdata", "lastInterceptedHbcvdata"],
+    ["acupuncture", "lastInterceptedAcupunctureData"],
     // ["rehabilitation", "lastInterceptedRehabilitationData"],
-    // ["acupuncture", "lastInterceptedAcupunctureData"],
     // ["specialChineseMedCare", "lastInterceptedSpecialChineseMedCareData"]
   ]),
 
@@ -569,8 +606,8 @@ const DataProcessor = {
     ["adultHealthCheck", "saveAdultHealthCheckData"],
     ["cancerScreening", "saveCancerScreeningData"],
     ["hbcvdata", "saveHbcvdata"],
+    ["acupuncture", "saveAcupunctureData"],
     // ["rehabilitation", "saveRehabilitationData"],
-    // ["acupuncture", "saveAcupunctureData"],
     // ["specialChineseMedCare", "saveSpecialChineseMedCareData"]
   ]),
 
@@ -590,8 +627,8 @@ const DataProcessor = {
     ["adultHealthCheck", "成人預防保健"],
     ["cancerScreening", "四癌篩檢結果"],
     ["hbcvdata", "B、C肝炎專區"],
+    ["acupuncture", "針灸治療"],
     // ["rehabilitation", "復健治療"],
-    // ["acupuncture", "針灸治療"],
     // ["specialChineseMedCare", "特殊中醫處置"]
   ]),
 
@@ -786,6 +823,7 @@ const DataProcessor = {
         action: action,
         data: data,
         userSession: currentUserSession,
+        fetchMs: lastFetchMs[dataType],
       },
       (response) => {
         if (response && response.status === "saved") {
@@ -1063,49 +1101,59 @@ function saveToken(token) {
   hasExtractedToken = true;
   console.log("Successfully extracted token:", token.substring(0, 20) + "...");
 
-  // Extract patient name directly from the page DOM
-  // The NHI cloud page header shows: 身分證號：A221***433 章玉華 民 55/06/22 女
+  // Extract patient name and ID — prefer JWT from sessionStorage (same
+  // source as extension's FloatingIcon UI, which displays the name reliably).
+  // Falls back to Authorization-header token, then DOM scrape as last resort.
   let patientName = '';
   let patientIdFromToken = '';
   try {
-    // Try reading from the page header text
-    const headerEl = document.querySelector('.patient-info, .user-info, [class*="patient"], [class*="header"]');
-    if (headerEl) {
-      const text = headerEl.textContent || '';
-      console.log("[NHITW Clinic] Header text:", text.substring(0, 100));
-    }
-
-    // Read all visible text in the top area and parse patient info
-    const bodyText = document.body.innerText || '';
-    // Pattern: 身分證號：XXXXXXXXXX 姓名 民 YY/MM/DD 性別
-    const idMatch = bodyText.match(/身分證[號]?[：:]\s*([A-Z]\d{9})/);
-    if (idMatch) patientIdFromToken = idMatch[1];
-
-    // The name is typically right after the ID pattern, or nearby
-    // Pattern: ID followed by name (Chinese characters) followed by 民
-    const nameMatch = bodyText.match(/身分證[號]?[：:]\s*[A-Z][\d*]{9}\s+([^\s民]+)/);
-    if (nameMatch) patientName = nameMatch[1].trim();
-
-    // If couldn't find via regex, try common page elements
-    if (!patientName) {
-      // Look for elements that commonly contain patient name on NHI cloud
-      const selectors = [
-        'span[class*="name"]', '.patientName', '#patientName',
-        '.card-header span', '.patient-header span'
-      ];
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el && el.textContent.trim().length >= 2 && el.textContent.trim().length <= 10) {
-          patientName = el.textContent.trim();
-          break;
-        }
+    let jwtToken = null;
+    const tokenNames = ['jwt_token', 'token', 'access_token', 'auth_token'];
+    for (const name of tokenNames) {
+      const stored = sessionStorage.getItem(name);
+      if (stored) {
+        jwtToken = stored.startsWith('Bearer ') ? stored.slice(7) : stored;
+        break;
       }
     }
+    if (!jwtToken) {
+      jwtToken = token.startsWith('Bearer ') ? token.slice(7) : token;
+    }
 
-    console.log("[NHITW Clinic] DOM parsed - Name:", patientName, "ID:", patientIdFromToken);
+    if (jwtToken && jwtToken.includes('.')) {
+      const base64 = jwtToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(
+        atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+      );
+      const payload = JSON.parse(jsonPayload);
+      patientName = payload.UserName || '';
+      patientIdFromToken = payload.UserID || '';
+    }
   } catch (e) {
-    console.warn("[NHITW Clinic] DOM parse failed:", e.message);
+    console.warn("[NHITW Clinic] JWT decode failed:", e.message);
   }
+
+  // DOM fallback if JWT didn't yield a name (e.g. sessionStorage not yet
+  // populated on very first XHR)
+  if (!patientName || !patientIdFromToken) {
+    try {
+      const bodyText = document.body.innerText || '';
+      if (!patientIdFromToken) {
+        const idMatch = bodyText.match(/身分證[號字]?[：:]\s*([A-Z]\d{9})/);
+        if (idMatch) patientIdFromToken = idMatch[1];
+      }
+      if (!patientName) {
+        const nameMatch = bodyText.match(/身分證[號字]?[：:]\s*[A-Z][\d*]{9}\s+([一-龥]+)/);
+        if (nameMatch) patientName = nameMatch[1].trim();
+      }
+    } catch (e) {
+      console.warn("[NHITW Clinic] DOM fallback failed:", e.message);
+    }
+  }
+
+  // Mask PHI in logs (chars between first and last few): 「許朝慶」→「許*慶」,
+  // 「P122726079」→「P122***079」. Loggable enough to debug; not enough to leak.
+  console.log("[NHITW Clinic] Patient info - Name:", maskPii(patientName, 1, 1), "ID:", maskPii(patientIdFromToken, 4, 3));
 
   // 保存令牌到內存（不存到 localStorage）
   // 也發送給 background script 以供臨時使用
@@ -1373,8 +1421,8 @@ function fetchAllDataTypes() {
         "discharge",
         "medDays",
         "patientsummary",
+        "acupuncture",
         // "rehabilitation",
-        // "acupuncture",
         // "specialChineseMedCare",
       ];
 
@@ -1572,8 +1620,8 @@ const apiPathMap = new Map([
   ["adultHealthCheck", "imue0140/imue0140s01/hpa-data"],
   ["cancerScreening", "imue0150/imue0150s01/hpa-data"],
   ["hbcvdata", "imue0180/imue0180s01/hbcv-data"],
+  ["acupuncture", "imue0160/imue0160s02/get-data"], // 中醫處置/針灸治療 (CHINMED)
   // ["rehabilitation", "imue0080/imue0080s02/get-data"],
-  // ["acupuncture", "imue0160/imue0160s02/get-data"],
   // ["specialChineseMedCare", "imue0170/imue0170s02/get-data"]
 ]);
 
@@ -1600,8 +1648,8 @@ function enhancedFetchData(dataType, options = {}) {
     "adultHealthCheck",
     "cancerScreening",
     "hbcvdata",
+    "acupuncture",
     // "rehabilitation",
-    // "acupuncture",
     // "specialChineseMedCare",
   ];
 
@@ -1620,6 +1668,12 @@ function enhancedFetchData(dataType, options = {}) {
   // 設置請求狀態
   pendingRequests[dataType] = true;
   let retryCount = 0;
+  // Sentinel:401 重試完成時直接 settle 外層 promise,用這個標記讓資料處理
+  // 鏈跳過 — 否則重試的「結果信封」{status, recordCount, dataType, data}
+  // 會被當成 API JSON 再處理一次(masterMenu 的 prsnAuth 因此被垃圾覆蓋 →
+  // 整批誤判無授權 → 無聲匯出空報告)。
+  const RETRY_SETTLED = Symbol("nhitw-retry-settled");
+  const fetchStartedAt = Date.now(); // 健保雲端回應耗時(含重試),供匯出診斷用
   // console.log(`開始獲取 ${dataType} 資料 - ${new Date().toISOString()}`);
 
   // 主要的獲取邏輯
@@ -1680,15 +1734,22 @@ function enhancedFetchData(dataType, options = {}) {
             if (response.status === 401 && retryCount < maxRetries) {
               retryCount++;
 
-              return new Promise((resolve) =>
-                setTimeout(() => resolve(attemptFetch()), retryInterval)
-              );
+              // 重試的結果直接交給本次 attempt 的 resolve/reject,不再流回
+              // 這條 .then 鏈(見 RETRY_SETTLED 註解)。鏈保持未 settle 直到
+              // 重試完成,所以 finally 清 pendingRequests 的時機不變。
+              return new Promise((res) => setTimeout(res, retryInterval))
+                .then(() => attemptFetch())
+                .then(
+                  (envelope) => { resolve(envelope); return RETRY_SETTLED; },
+                  (err) => { reject(err); return RETRY_SETTLED; }
+                );
             }
             throw new Error(`HTTP error! status: ${response.status}`);
           }
           return response.json();
         })
         .then((data) => {
+          if (data === RETRY_SETTLED) return; // 重試已 settle 外層,不再處理
           // DEBUG: 輸出 adultHealthCheck 和 cancerScreening 的回應
           if (dataType === "adultHealthCheck" || dataType === "cancerScreening") {
             console.log(`[DEBUG] enhancedFetchData 收到 ${dataType} 回應:`, data);
@@ -1739,6 +1800,7 @@ function enhancedFetchData(dataType, options = {}) {
               }
             }
 
+            lastFetchMs[dataType] = Date.now() - fetchStartedAt;
             saveData(normalizedData, dataType, "direct");
             const recordCount = normalizedData.rObject.length;
             console.log(`[DEBUG] ${dataType} 請求完成，記錄數: ${recordCount}`);
@@ -1794,7 +1856,8 @@ const nodeToDataTypeMap = [
   ["2.1", "medication"],
   ["2.4", "medDays"],
   ["3.1", "chinesemed"],
-  // ["3.2", "acupuncture"],
+  ["3.1", "acupuncture"], // 中醫大類:有中藥(3.1)授權就能看針灸治療紀錄,避免 3.2 未列時被擋
+  ["3.2", "acupuncture"],
   // ["3.3", "specialChineseMedCare"],
   ["5.1", "allergy"],
   ["6.1", "labdata"],
@@ -1874,6 +1937,148 @@ function injectFloatingIcon() {
 
 // 監聽來自背景腳本的消息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === "getPatientInfo") {
+    // Read sessionStorage JWT and decode — same source the popup uses, so if
+    // popup shows the name this will too. Called by background.js right
+    // before generating the HTML report filename. Also extracts age + sex
+    // because the report's CKD/asthma project badges need them.
+    let name = '';
+    let id = '';
+    let age = null;
+    let sex = '';
+    let birthday = '';
+    const tokenNames = ['jwt_token', 'token', 'access_token', 'auth_token'];
+      let raw = null;
+    let usedTokenKey = null;
+    // Privacy: collect ONLY field names + booleans, never raw PHI values.
+    // The whole payload travels into an HTML comment inside the shared-folder
+    // report, so anything we record here is potentially visible to clinic
+    // staff who can open that file. Masks + key-only dumps everywhere.
+    const dbg = {
+      generatedAt: new Date().toISOString(),
+      docTitle: '',
+      urlPath: '',
+      sessionStorageKeys: [],
+      jwtTried: [],
+      jwtUsedKey: null,
+      jwtPayloadKeys: null,
+      jwtFields: { UserID: false, UserName: false, UserSex: false, UserBirthday: false },
+      jwtDecodeError: null,
+      domMarkerFound: false,
+      domSnippetSanitised: '',
+      domIdMatched: false,
+      domNameMatched: false,
+    };
+    try { dbg.docTitle = (document.title || '').slice(0, 80); } catch (_) {}
+    try { dbg.urlPath = location.pathname || ''; } catch (_) {}
+    try {
+      const sk = [];
+      for (let i = 0; i < sessionStorage.length; i++) sk.push(sessionStorage.key(i));
+      dbg.sessionStorageKeys = sk.sort();
+    } catch (_) {}
+    try {
+      let raw = null;
+      for (const n of tokenNames) {
+        const v = sessionStorage.getItem(n);
+        dbg.jwtTried.push(n + (v ? ':present' : ':absent'));
+        if (v && !raw) {
+          raw = v.startsWith('Bearer ') ? v.slice(7) : v;
+          usedTokenKey = n;
+        }
+      }
+      dbg.jwtUsedKey = usedTokenKey;
+      if (raw && raw.split('.').length === 3) {
+        let b64 = raw.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        while (b64.length % 4) b64 += '=';
+        const json = decodeURIComponent(
+          atob(b64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+        );
+        const payload = JSON.parse(json);
+        name = payload.UserName || '';
+        id = payload.UserID || '';
+        sex = payload.UserSex || '';
+        birthday = payload.UserBirthday || '';
+        dbg.jwtPayloadKeys = Object.keys(payload).sort();
+        dbg.jwtFields.UserID = !!payload.UserID;
+        dbg.jwtFields.UserName = !!payload.UserName;
+        dbg.jwtFields.UserSex = !!payload.UserSex;
+        dbg.jwtFields.UserBirthday = !!payload.UserBirthday;
+        // ROC YYYMMDD → AD year then compute age (same as extractUserInfoFromToken)
+        if (birthday && birthday.length === 7) {
+          const rocYear = parseInt(birthday.substring(0, 3), 10);
+          const month = parseInt(birthday.substring(3, 5), 10);
+          const day = parseInt(birthday.substring(5, 7), 10);
+          if (!isNaN(rocYear) && !isNaN(month) && !isNaN(day)) {
+            const adYear = rocYear + 1911;
+            const birthDate = new Date(adYear, month - 1, day);
+            const today = new Date();
+            age = today.getFullYear() - birthDate.getFullYear();
+            const md = today.getMonth() - birthDate.getMonth();
+            if (md < 0 || (md === 0 && today.getDate() < birthDate.getDate())) age--;
+          }
+        }
+      }
+    } catch (e) {
+      dbg.jwtDecodeError = String(e && e.message || e).slice(0, 120);
+      console.warn('[NHITW Clinic] getPatientInfo decode failed:', e.message);
+    }
+    // DOM fallback — getPatientInfo previously only decoded the JWT, so when
+    // a hospital's JWT omits UserName it returned a nameless response and the
+    // export downgraded the report filename to the ID number. Mirror
+    // extractUserInfoFromToken's DOM scrape so this path is just as robust.
+    try {
+      const bodyText = document.body.innerText || '';
+      const idx = bodyText.indexOf('身分證');
+      dbg.domMarkerFound = idx >= 0;
+      if (idx >= 0) {
+        // Mask raw PHI values but preserve STRUCTURE so we can see whether the
+        // name is positioned where our regex expects (and what the separator
+        // looks like). 'P223307767 孟卉妍 40歲' → '身分證號：[ID] [姓名] 40歲'.
+        let snip = bodyText.substring(idx, idx + 100);
+        snip = snip
+          .replace(/[A-Z][\d*]{8,11}/g, '[ID]')
+          .replace(/[一-龥]{2,5}/g, '[漢]')
+          .replace(/\s+/g, ' ')
+          .trim();
+        dbg.domSnippetSanitised = snip;
+      }
+      if (!id) {
+        const idMatch = bodyText.match(/身分證[號字]?[：:]\s*([A-Z]\d{9})/);
+        if (idMatch) { id = idMatch[1]; dbg.domIdMatched = true; }
+      }
+      if (!name) {
+        const nameMatch = bodyText.match(/身分證[號字]?[：:]\s*[A-Z][\d*]{9}\s+([一-龥]+)/);
+        if (nameMatch) { name = nameMatch[1].trim(); dbg.domNameMatched = true; }
+      }
+    } catch (_) { /* ignore */ }
+    // Also reveal which masterMenu auth nodes the patient/clinic combo has —
+    // when acupuncture/chinesemed comes back empty in the report (e.g. 張寶玉
+    // 2026/06/26: dataAtExport.acupunctureData=0 despite the patient having
+    // 13 pure-acupuncture visits at our clinic), this tells us whether the
+    // fetch was skipped due to missing node-3.2 auth vs. an actually empty
+    // NHI response.
+    try {
+      const mm = window.lastInterceptedMasterMenuData;
+      const menuData = mm?.rObject?.[0] || mm;
+      dbg.masterMenuAuth = Array.isArray(menuData?.prsnAuth) ? [...menuData.prsnAuth].sort() : null;
+      dbg.masterMenuPresent = !!mm;
+    } catch (_) { dbg.masterMenuAuth = null; }
+    // Status of each data type's current payload — informs whether ACU was
+    // never fetched, fetched-but-empty, or genuinely populated.
+    try {
+      const pp = (raw) => raw == null ? 'null' : (Array.isArray(raw.rObject) ? `rows=${raw.rObject.length}` : 'present');
+      dbg.dataState = {
+        chinesemed: pp(window.lastInterceptedChineseMedData),
+        acupuncture: pp(window.lastInterceptedAcupunctureData),
+        medication: pp(window.lastInterceptedMedicationData),
+        labdata: pp(window.lastInterceptedLabData),
+      };
+    } catch (_) {}
+    console.log('[NHITW Clinic] getPatientInfo →', { name: maskPii(name, 1, 1), id: maskPii(id, 4, 3), age, sex });
+    sendResponse({ name, id, age, sex, birthday, _debug: dbg });
+    return true;
+  }
+
   if (message.action === "apiCallDetected") {
     // 只在debug模式下顯示詳細API呼叫資訊
     // console.log("Background script detected API call:", message.url);
@@ -2052,8 +2257,8 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
         adultHealthCheck: window.lastInterceptedAdultHealthCheckData,
         cancerScreening: window.lastInterceptedCancerScreeningData,
         hbcvdata: window.lastInterceptedHbcvdata,
+        acupuncture: window.lastInterceptedAcupunctureData,
         // rehabilitation: window.lastInterceptedRehabilitationData,
-        // acupuncture: window.lastInterceptedAcupunctureData,
         // specialChineseMedCare: window.lastInterceptedSpecialChineseMedCareData,
       };
 

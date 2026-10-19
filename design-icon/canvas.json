@@ -1,0 +1,13 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 620, "h": 470, "title": "領先方案預覽" },
+    { "file": "DirectionA.dc.html", "x": 0, "y": 620, "w": 480, "h": 470 },
+    { "file": "DirectionB.dc.html", "x": 570, "y": 620, "w": 480, "h": 470 },
+    { "file": "DirectionC.dc.html", "x": 1140, "y": 620, "w": 480, "h": 470 },
+    { "file": "DirectionD.dc.html", "x": 1710, "y": 620, "w": 480, "h": 470 }
+  ],
+  "annotations": [
+    { "id": "pick-note", "x": 700, "y": 40, "w": 300, "text": "四個方向各附 128/48/32/16px 尺寸預覽。\n挑一個(或說要混搭哪些元素),我再輸出全尺寸正式 PNG 換進擴充套件。" }
+  ],
+  "launch": { "view": "canvas" }
+}
