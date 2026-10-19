@@ -753,6 +753,7 @@ function buildLabPivotPanel(items, patientMeta = {}) {
     if (!itemMap[name].unit && unit) itemMap[name].unit = unit;
     if (!itemMap[name].code && code) itemMap[name].code = code;
     const newCell = { value, dir: labDirection(value, ref, code, sexHint), ref: refDisplay(ref, code, sexHint) };
+    if (name === 'GFR') newCell.gfrRank = gfrFormulaRank(l);
     const existing = itemMap[name].dates[date];
     if (!existing) {
       itemMap[name].dates[date] = newCell;
@@ -766,14 +767,24 @@ function buildLabPivotPanel(items, patientMeta = {}) {
       if (!existV) { itemMap[name].dates[date] = newCell; }
       else if (!newV || existV === newV) { /* nothing new, skip */ }
       else {
-        // Choose which is "primary" — abnormal beats normal.
-        const swap = !existing.dir && newCell.dir;
+        // Choose which is "primary". GFR: CKD-EPI beats MDRD (see gfrFormulaRank)
+        // — the primary is what the cell shows, what copy picks up, and what the
+        // CKD badge stages on. Everything else: abnormal beats normal.
+        let swap;
+        if (name === 'GFR' && existing.gfrRank !== newCell.gfrRank) {
+          swap = newCell.gfrRank > existing.gfrRank;
+        } else {
+          swap = !existing.dir && newCell.dir;
+        }
+        // 同日另 的 GFR 值標上公式,醫師一眼知道為何不同
+        const tag = (c) => name === 'GFR' && GFR_FORMULA_LABEL[c.gfrRank] ? ' ' + GFR_FORMULA_LABEL[c.gfrRank] : '';
         if (swap) {
-          newCell.alternates = [existV, ...(existing.alternates || []).filter(v => v !== newV)];
+          newCell.alternates = [existV + tag(existing), ...(existing.alternates || []).filter(v => v !== newV)];
           itemMap[name].dates[date] = newCell;
         } else {
           existing.alternates = existing.alternates || [];
-          if (!existing.alternates.includes(newV)) existing.alternates.push(newV);
+          const alt = newV + tag(newCell);
+          if (!existing.alternates.includes(alt)) existing.alternates.push(alt);
         }
       }
     }
@@ -1621,6 +1632,19 @@ function buildAsthmaBadge(data, patientMeta = {}) {
 // which sidesteps the messy unit issue across labs (some report raw mg/dL urine
 // protein, some report mg/g ratio — the lab knows its own thresholds either
 // way, so its 'high' flag is the most reliable signal).
+// 同日多筆 eGFR 的優先序。健保署 CKD 專案用 CKD-EPI 審,所以 CKD-EPI 永遠優先
+// 於 MDRD —— 榮總等老系統的檢驗報告標 eGFR(M)(M = MDRD),在腎功能正常區間
+// 會低估 10 分以上(施O逸 2026-04-01:MDRD 74.61 vs CKD-EPI 87.86),拿它分期
+// 會把 G1/G2 邊界、甚至 G2/G3a 邊界判錯。
+//   2 = CKD-EPI(含健保署計算)  1 = 未標明  0 = MDRD
+function gfrFormulaRank(l) {
+  const s = ((l.assay_item_name || '') + ' ' + (l.order_name || '') + ' ' + (l.assay_method || '')).toLowerCase();
+  if (/ckd-?epi|健保署計算/.test(s)) return 2;
+  if (/\(m\)|mdrd/.test(s)) return 0;
+  return 1;
+}
+const GFR_FORMULA_LABEL = { 0: '(MDRD)', 2: '(CKD-EPI)' };
+
 function getLatestLabValue(labData, canonical) {
   if (!labData?.rObject) return null;
   let best = null;
@@ -1628,7 +1652,11 @@ function getLatestLabValue(labData, canonical) {
     if (canonicalLabName(l) !== canonical) continue;
     const d = parseDate(l.real_inspect_date || l.recipe_date || '');
     if (!d) continue;
-    if (!best || d > best.date) best = { date: d, value: l.assay_value, code: l.order_code || '', ref: l.consult_value || '' };
+    // 同一天多筆 GFR:CKD-EPI 勝過 MDRD,不再先到先贏
+    const rank = canonical === 'GFR' ? gfrFormulaRank(l) : 0;
+    if (!best || d > best.date || (d === best.date && rank > best.rank)) {
+      best = { date: d, value: l.assay_value, code: l.order_code || '', ref: l.consult_value || '', rank };
+    }
   }
   return best;
 }
