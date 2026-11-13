@@ -53,18 +53,46 @@
 
 ## 第五步:開通自動發佈(一次性,約 15 分鐘)
 
-Chrome 用 OAuth,比 Edge 多幾步:
+> 自動發佈用的是 Chrome Web Store API **V2**(`scripts/cws-publish.sh`)。
+> 五個 secrets 缺任何一個,workflow 會**略過 Chrome**(Edge 照常),並在 log 的 warning 列出缺哪幾個。
+
+Chrome 用 OAuth,比 Edge 多幾步。**全程用「擁有開發者主控台項目」的那個 Google 帳號**:
+
 1. Google Cloud Console https://console.cloud.google.com → 建立專案(任意名稱)
 2. 「API 和服務」→「程式庫」→ 搜尋 **Chrome Web Store API** → 啟用
-3. 「OAuth 同意畫面」→ 外部 → 填名稱與 Email → 「測試使用者」加入你自己的 Google 帳號
-4. 「憑證」→ 建立憑證 → **OAuth 用戶端 ID** → 類型「網頁應用程式」→ 已授權的重新導向 URI 填 `https://developers.google.com/oauthplayground` → 記下 **用戶端 ID** 與 **用戶端密碼**
-5. 開 https://developers.google.com/oauthplayground → 右上齒輪 → 勾「Use your own OAuth credentials」→ 貼用戶端 ID/密碼
-   → 左側 Step 1 的輸入框填 `https://www.googleapis.com/auth/chromewebstore` → Authorize APIs → 用**與開發者主控台相同的 Google 帳號**登入同意
-   → Step 2 按「Exchange authorization code for tokens」→ 複製 **Refresh token**
-6. GitHub → Settings → Secrets and variables → Actions,建四個:
-   - `CWS_EXTENSION_ID`(第一步的 32 碼項目 ID)
-   - `CWS_CLIENT_ID`、`CWS_CLIENT_SECRET`(第 4 步)
-   - `CWS_REFRESH_TOKEN`(第 5 步)
-7. 完成。之後發版時 Claude 推送 `.github/publish.trigger`(Edge + Chrome 同時發佈) 即自動上傳送審。
+3. 「OAuth 同意畫面」→ 使用者類型選「外部」→ 填應用程式名稱與 Email → 儲存
+4. **同一頁按「發布應用程式」,把發布狀態從「測試」改成「實際運作」**
+   (僅自己使用,不需送 Google 驗證。**這步沒做,refresh token 7 天後失效**,自動發佈會在一週後突然壞掉)
+5. 「憑證」→ 建立憑證 → **OAuth 用戶端 ID** → 類型「網頁應用程式」→ 已授權的重新導向 URI 填
+   `https://developers.google.com/oauthplayground` → 記下 **用戶端 ID** 與 **用戶端密碼**
+6. 開 https://developers.google.com/oauthplayground
+   - 右上齒輪 → 勾「Use your own OAuth credentials」→ 貼用戶端 ID/密碼
+   - 左側 Step 1 最下方的輸入框填 `https://www.googleapis.com/auth/chromewebstore` → Authorize APIs → 登入並同意
+     (出現「Google 尚未驗證這個應用程式」→ 進階 → 繼續前往)
+   - Step 2 按「Exchange authorization code for tokens」→ 複製 **Refresh token**
+7. 找 **發佈者 ID**:開 https://chrome.google.com/webstore/devconsole ,網址會變成
+   `…/devconsole/【發佈者 ID】`(點進項目則是 `…/devconsole/【發佈者 ID】/【32 碼項目 ID】/edit`)。只要中間那一串,不含斜線。
+8. GitHub → repo → Settings → Secrets and variables → Actions → New repository secret,建五個:
 
-> 注意:OAuth 同意畫面若停留在「測試」狀態,refresh token 會在 7 天後失效。到「OAuth 同意畫面」按「發布應用程式」(僅自己使用,不需 Google 驗證)即可長期有效。
+   | Secret 名稱 | 值 |
+   |---|---|
+   | `CWS_PUBLISHER_ID` | 第 7 步的發佈者 ID |
+   | `CWS_EXTENSION_ID` | `dapepocdemfppmbpflflkeaemkjigkag` |
+   | `CWS_CLIENT_ID` | 第 5 步的用戶端 ID |
+   | `CWS_CLIENT_SECRET` | 第 5 步的用戶端密碼 |
+   | `CWS_REFRESH_TOKEN` | 第 6 步的 Refresh token |
+
+9. 完成。之後發版推送 `.github/publish.trigger` 即 Edge + Chrome 同時上傳送審。
+   只想補送 Chrome:Actions →「Publish to stores」→ Run workflow → stores 選 `chrome`。
+
+### 失敗時看哪裡
+
+| log 訊息 | 原因與處理 |
+|---|---|
+| `Chrome 缺少 secrets: …` | 列出的 secret 還沒建,或名稱打錯 |
+| `取不到 Google access token` + `invalid_grant` | refresh token 失效 —— 確認第 4 步已發布,重做第 6 步換新的 token |
+| `取不到 Google access token` + `invalid_client` | `CWS_CLIENT_ID` / `CWS_CLIENT_SECRET` 貼錯 |
+| `Chrome 上傳失敗` + 403 / `PERMISSION_DENIED` | 第 6 步登入的帳號不是項目擁有者,或 `CWS_PUBLISHER_ID` 填錯 |
+| `Chrome 上傳失敗` + 版本相關訊息 | 版本號沒有比商店上的大;或前一版仍在審查中,等審完再送 |
+
+> V2 API 不能改能見度 —— 「未列出」維持在開發者主控台的設定。
