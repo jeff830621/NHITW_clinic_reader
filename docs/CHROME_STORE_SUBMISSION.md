@@ -31,7 +31,6 @@
 |---|---|
 | `webRequest` | 觀察健保雲端(medcloud2.nhi.gov.tw)API 回應的抵達時機,以便在該病患資料齊全後產生報告。僅觀察,不修改、不封鎖任何請求。 |
 | `storage` | 儲存使用者設定(自動匯出開關、保留天數、藥物分類設定),不含任何病患資料。 |
-| `scripting` | 在健保雲端頁面注入本擴充功能的操作介面(僅該網域)。 |
 | `clipboardWrite` | 讓醫師一鍵複製檢驗數據到病歷系統。 |
 | `nativeMessaging` | 選用模式:透過開源的本機 PowerShell 主機,將報告寫入診所指定的共享資料夾並清除逾期檔案。原始碼:github.com/jeff830621/NHITW_clinic_reader/tree/feat/clinic-reader/native-host |
 | `downloads` | 免安裝模式:將報告存入瀏覽器下載資料夾。 |

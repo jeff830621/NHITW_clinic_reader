@@ -60,7 +60,7 @@ WHAT IT DOES: when a clinician queries a patient on MediCloud, it compiles the r
 PERMISSIONS
 - nativeMessaging: optional mode writing the report to a clinic shared folder via a small open-source PowerShell host (github.com/jeff830621/NHITW_clinic_reader/tree/feat/clinic-reader/native-host). Not needed in download mode.
 - downloads: the browser-download mode above.
-- webRequest (observe only), scripting, storage, alarms, clipboardWrite: detect MediCloud API responses, inject UI on that site only, keep settings, debounce export, copy lab values.
+- webRequest (observe only), storage, alarms, clipboardWrite: detect MediCloud API responses, inject UI on that site only, keep settings, debounce export, copy lab values.
 - Host drugtw.com: optional drug-image lookup, OFF by default; sends a drug code only, never patient data.
 
 PRIVACY: all data stays on the user's machine; nothing is sent to the developer or any server; no analytics. Policy: github.com/jeff830621/NHITW_clinic_reader/blob/feat/clinic-reader/PRIVACY.md
