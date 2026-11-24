@@ -2,7 +2,7 @@
 // 監聽藥歷 API 請求
 
 import { writeHtml } from './utils/nativeHostBridge.js';
-import { generateHtmlReport, getReportFilename } from './utils/htmlReportGenerator.js';
+import { generateHtmlReport, getProjectTags, getReportFilename } from './utils/htmlReportGenerator.js';
 
 // Modify currentSessionData to include new data types
 let currentSessionData = {
@@ -562,7 +562,8 @@ async function autoExportToSharedFolder(opts) {
     const genStart = Date.now();
     let html = generateHtmlReport(patientName, patientId, exportData, patientMeta, userSettings);
     const genMs = Date.now() - genStart;
-    const filename = getReportFilename(patientName);
+    // 符合的專案(腎/癌/孕/喘)註記在檔名尾端 —— 醫師在資料夾就看得到。
+    const filename = getReportFilename(patientName, undefined, getProjectTags(exportData, patientMeta));
     const session = getClinicSession(new Date());
     // 匯出方式:'host'(預設,院所標準)或 'download'(免安裝替代方案)。
     const exportMode = sharedFolder.exportMode === 'download' ? 'download' : 'host';

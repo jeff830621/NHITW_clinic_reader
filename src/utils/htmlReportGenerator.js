@@ -103,7 +103,20 @@ function formatPatientMeta(m) {
   return parts.join(' ');
 }
 
-export function getReportFilename(patientName, date) {
+// 檔名尾端的專案註記(腎/癌/孕/喘)。診務繁忙時醫師在資料夾裡掃檔名就能看到
+// 這位病人符合哪些專案,不必逐一點開報告。判定與報告上的徽章共用同一套邏輯
+// (徽章有亮 ⇔ 檔名有字),順序固定。不含複雜針灸、CKD 待確認、中藥餘藥。
+export function getProjectTags(data, patientMeta = {}) {
+  if (!data) return '';
+  let tags = '';
+  if (evaluateCkd(data, patientMeta)?.status === 'eligible') tags += '腎';
+  if (detectCancerCarePlan(collectAllIcdCodes(data)).length > 0) tags += '癌';
+  if (getMatchedObstetricCodes(data).size > 0) tags += '孕';
+  if (getMatchedAsthmaCodes(data, patientMeta).size > 0) tags += '喘';
+  return tags;
+}
+
+export function getReportFilename(patientName, date, projectTags = '') {
   const d = date || new Date();
   const y = d.getFullYear();
   const mo = String(d.getMonth() + 1).padStart(2, '0');
@@ -118,7 +131,10 @@ export function getReportFilename(patientName, date) {
   // native host's Join-Path. Compact whitespace to a single underscore.
   const safeName = patientName.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').replace(/^\.+/, '');
   const finalName = safeName || 'unknown';
-  return `${finalName}_${y}${mo}${da}_${h}${mi}${se}.html`;
+  // 專案註記直接接在秒數後面(王小明_20261124_085634腎癌.html);沒有符合的
+  // 專案就維持原檔名。同樣濾掉 Windows 不允許的字元。
+  const safeTags = String(projectTags || '').replace(/[\\/:*?"<>|\s]/g, '');
+  return `${finalName}_${y}${mo}${da}_${h}${mi}${se}${safeTags}.html`;
 }
 
 // --- 版本戳記 ---------------------------------------------------------
@@ -1749,7 +1765,11 @@ function labWithinDays(labData, days) {
   return { ...labData, rObject: rows };
 }
 
-function buildCkdBadge(data, patientMeta = {}) {
+// CKD 判定(與畫面無關):回傳 null(不提示)或
+//   { status: 'eligible' | 'watch', label, tip }
+// 'eligible' = 符合收案(報告亮「CKD 收案」、檔名加「腎」);
+// 'watch'    = stage 2 但沒有 UPCR/UACR 超標的證據,只在報告上提示待確認。
+function evaluateCkd(data, patientMeta = {}) {
   const recentLab = labWithinDays(data?.labData, CKD_WINDOW_DAYS);
   const cr = getLatestLabValue(recentLab, 'Cr');
   const labGfrRec = getLatestLabValue(recentLab, 'GFR');
@@ -1783,24 +1803,30 @@ function buildCkdBadge(data, patientMeta = {}) {
     basisDate = labGfrRec.date;
   }
   console.log('[NHITW Clinic] CKD check: labGFR=' + labGfr + ' Cr=' + (cr?.value ?? 'none') + ' → eGFR=' + (egfr != null ? egfr.toFixed(1) : 'null') + ' (' + (basis || 'no basis') + ')');
-  if (egfr == null) return '';
+  if (egfr == null) return null;
   const stage = ckdStage(egfr);
-  if (stage === '正常') return '';
+  if (stage === '正常') return null;
 
   // <60 (G3a/b/4/5) — eligible regardless of proteinuria
   if (egfr < 60) {
     const tip = `eGFR ${egfr.toFixed(1)} mL/min/1.73m² (${stage})，符合中醫慢性腎臟病門診加強照護計畫\n依據：${basis} @ ${basisDate}（僅採計 ${CKD_WINDOW_DAYS} 天內檢驗）\n需主診斷 ICD-10 N18.2-N18.6`;
-    return `<span class="ckd-badge ckd-eligible" title="${esc(tip)}">🫘 CKD 收案 (${stage})</span>`;
+    return { status: 'eligible', label: `CKD 收案 (${stage})`, tip };
   }
 
   // G2 (60-89.9) — needs proteinuria/hematuria
   const prot = findAbnormalProteinuria(recentLab);
   if (prot) {
     const tip = `eGFR ${egfr.toFixed(1)} (${stage}) + ${prot.name}=${prot.value} 超標 (參考 ${prot.ref || '無'}) @ ${prot.date}\n符合 stage 2 收案條件 — 需主診斷 ICD-10 N18.2-N18.6\n依據：${basis}`;
-    return `<span class="ckd-badge ckd-eligible" title="${esc(tip)}">🫘 CKD 收案 (stage 2 + 蛋白尿)</span>`;
+    return { status: 'eligible', label: 'CKD 收案 (stage 2 + 蛋白尿)', tip };
   }
   const tip = `eGFR ${egfr.toFixed(1)} (${stage})；stage 2 收案需 UPCR≥150 mg/g、UACR≥30 mg/g（糖尿病）或血尿，請臨床判斷\n依據：${basis} @ ${basisDate}（僅採計 ${CKD_WINDOW_DAYS} 天內檢驗）`;
-  return `<span class="ckd-badge ckd-watch" title="${esc(tip)}">🫘 CKD 待確認 (stage 2)</span>`;
+  return { status: 'watch', label: 'CKD 待確認 (stage 2)', tip };
+}
+
+function buildCkdBadge(data, patientMeta = {}) {
+  const ckd = evaluateCkd(data, patientMeta);
+  if (!ckd) return '';
+  return `<span class="ckd-badge ckd-${ckd.status}" title="${esc(ckd.tip)}">🫘 ${ckd.label}</span>`;
 }
 
 // --- ATC5 Classification (matches extension's medicationGroups.js) ---
