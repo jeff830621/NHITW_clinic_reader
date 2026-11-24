@@ -1,0 +1,158 @@
+name: Publish to stores
+
+# 發版:把商店包檔名寫進 .github/publish.trigger 後推送 → Edge 與 Chrome 同時上傳送審。
+# 標記檔格式:
+#   NHITW_clinic_reader_store_v2026.9.26.zip     ← release 分支 releases/ 內的檔名
+#   stores=both                                   ← 可選:edge | chrome | both(預設 both)
+# 任一商店的 secrets 未設定 → 該商店自動略過,不影響另一邊。
+#   Edge  : EDGE_PRODUCT_ID / EDGE_CLIENT_ID / EDGE_API_KEY
+#   Chrome: CWS_PUBLISHER_ID / CWS_EXTENSION_ID / CWS_CLIENT_ID / CWS_CLIENT_SECRET / CWS_REFRESH_TOKEN
+on:
+  push:
+    branches: [claude/continue-work-Hp1Na]
+    paths: ['.github/publish.trigger']
+  workflow_dispatch:
+    inputs:
+      zip:
+        description: '商店包檔名(留空 = 讀 .github/publish.trigger)'
+        required: false
+        default: ''
+      stores:
+        description: '要發佈的商店'
+        type: choice
+        options: [both, edge, chrome]
+        default: both
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      zip: ${{ steps.pick.outputs.zip }}
+      version: ${{ steps.pick.outputs.version }}
+      stores: ${{ steps.pick.outputs.stores }}
+      has_edge: ${{ steps.flags.outputs.has_edge }}
+      has_cws: ${{ steps.flags.outputs.has_cws }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { ref: release, path: rel }
+      - name: Pick store package
+        id: pick
+        run: |
+          NAME="${{ github.event.inputs.zip }}"; STORES="${{ github.event.inputs.stores }}"
+          if [ -f .github/publish.trigger ]; then
+            [ -z "$NAME" ] && NAME=$(grep -v '^#' .github/publish.trigger | grep -v '=' | tr -d ' \r\n' | head -c 200)
+            [ -z "$STORES" ] && STORES=$(grep -E '^stores=' .github/publish.trigger | cut -d= -f2 | tr -d ' \r\n')
+          fi
+          [ -n "$NAME" ] && ZIP="rel/releases/$NAME" || ZIP=$(ls -1 rel/releases/NHITW_clinic_reader_store_*.zip | sort -V | tail -1)
+          [ -f "$ZIP" ] || { echo "::error::store zip not found: $ZIP"; exit 1; }
+          VER=$(unzip -p "$ZIP" manifest.json | python3 -c 'import json,sys;print(json.load(sys.stdin)["version"])')
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"; echo "version=$VER" >> "$GITHUB_OUTPUT"; echo "stores=${STORES:-both}" >> "$GITHUB_OUTPUT"
+          echo "📦 $ZIP  (version $VER)  → stores: ${STORES:-both}"
+      - name: Which stores are configured
+        id: flags
+        env:
+          E1: ${{ secrets.EDGE_PRODUCT_ID }}
+          E2: ${{ secrets.EDGE_CLIENT_ID }}
+          E3: ${{ secrets.EDGE_API_KEY }}
+          C1: ${{ secrets.CWS_EXTENSION_ID }}
+          C2: ${{ secrets.CWS_CLIENT_ID }}
+          C3: ${{ secrets.CWS_CLIENT_SECRET }}
+          C4: ${{ secrets.CWS_REFRESH_TOKEN }}
+          C5: ${{ secrets.CWS_PUBLISHER_ID }}
+        run: |
+          HE=$([ -n "$E1" ] && [ -n "$E2" ] && [ -n "$E3" ] && echo true || echo false)
+          HC=$([ -n "$C1" ] && [ -n "$C2" ] && [ -n "$C3" ] && [ -n "$C4" ] && [ -n "$C5" ] && echo true || echo false)
+          echo "has_edge=$HE" >> "$GITHUB_OUTPUT"; echo "has_cws=$HC" >> "$GITHUB_OUTPUT"
+          echo "Edge secrets: $HE / Chrome secrets: $HC"
+          if [ "$HC" != true ]; then
+            MISS=""
+            [ -n "$C5" ] || MISS="$MISS CWS_PUBLISHER_ID"
+            [ -n "$C1" ] || MISS="$MISS CWS_EXTENSION_ID"
+            [ -n "$C2" ] || MISS="$MISS CWS_CLIENT_ID"
+            [ -n "$C3" ] || MISS="$MISS CWS_CLIENT_SECRET"
+            [ -n "$C4" ] || MISS="$MISS CWS_REFRESH_TOKEN"
+            echo "::warning::Chrome 缺少 secrets:$MISS —— 本次略過 Chrome(見 docs/CHROME_STORE_SUBMISSION.md 第五步)"
+          fi
+
+  edge:
+    needs: prepare
+    if: needs.prepare.outputs.has_edge == 'true' && needs.prepare.outputs.stores != 'chrome'
+    runs-on: ubuntu-latest
+    env:
+      API: https://api.addons.microsoftedge.microsoft.com/v1/products
+      ZIP: ${{ needs.prepare.outputs.zip }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { ref: release, path: rel }
+      - name: Trim secrets
+        id: sec
+        env:
+          P: ${{ secrets.EDGE_PRODUCT_ID }}
+          C: ${{ secrets.EDGE_CLIENT_ID }}
+          K: ${{ secrets.EDGE_API_KEY }}
+        run: |
+          P=$(printf '%s' "$P" | tr -d '[:space:]'); C=$(printf '%s' "$C" | tr -d '[:space:]'); K=$(printf '%s' "$K" | tr -d '[:space:]')
+          echo "::add-mask::$P"; echo "::add-mask::$C"; echo "::add-mask::$K"
+          echo "$P" | grep -Eq '^[0-9a-fA-F-]{36}$' || { echo "::error::EDGE_PRODUCT_ID 應為 36 碼 GUID(Partner Center 產品頁網址 /microsoftedge/【這段】/packages/),不是商店的 32 碼擴充套件 ID"; exit 1; }
+          echo "p=$P" >> "$GITHUB_OUTPUT"; echo "c=$C" >> "$GITHUB_OUTPUT"; echo "k=$K" >> "$GITHUB_OUTPUT"
+      - name: Upload package
+        id: upload
+        env: { P: "${{ steps.sec.outputs.p }}", C: "${{ steps.sec.outputs.c }}", K: "${{ steps.sec.outputs.k }}" }
+        run: |
+          H=$(mktemp)
+          CODE=$(curl -sS -o /dev/null -w '%{http_code}' -D "$H" -X POST \
+            -H "Authorization: ApiKey $K" -H "X-ClientID: $C" -H "Content-Type: application/zip" \
+            --data-binary "@$ZIP" "$API/$P/submissions/draft/package")
+          OP=$(grep -i '^Location:' "$H" | tr -d '\r' | awk '{print $2}')
+          echo "HTTP $CODE"
+          [ "$CODE" = "202" ] && [ -n "$OP" ] || { echo "::error::Edge 上傳被拒(HTTP $CODE)—— 若前一版仍在審查中,等審完再重送 stores=edge"; cat "$H"; exit 1; }
+          echo "operation=$OP" >> "$GITHUB_OUTPUT"
+      - name: Wait for package processing
+        env: { P: "${{ steps.sec.outputs.p }}", C: "${{ steps.sec.outputs.c }}", K: "${{ steps.sec.outputs.k }}" }
+        run: |
+          for i in $(seq 1 40); do
+            S=$(curl -sS -H "Authorization: ApiKey $K" -H "X-ClientID: $C" "$API/$P/submissions/draft/package/operations/${{ steps.upload.outputs.operation }}")
+            echo "$S"
+            echo "$S" | grep -qi '"status"[[:space:]]*:[[:space:]]*"Succeeded"' && exit 0
+            echo "$S" | grep -qi '"status"[[:space:]]*:[[:space:]]*"Failed"' && { echo "::error::Edge 套件處理失敗"; exit 1; }
+            sleep 15
+          done; echo "::error::timed out"; exit 1
+      - name: Publish (submit for certification)
+        id: publish
+        env: { P: "${{ steps.sec.outputs.p }}", C: "${{ steps.sec.outputs.c }}", K: "${{ steps.sec.outputs.k }}" }
+        run: |
+          BODY=$(jq -Rs '{notes: .}' docs/certification-notes.txt); H=$(mktemp)
+          CODE=$(curl -sS -o /dev/null -w '%{http_code}' -D "$H" -X POST \
+            -H "Authorization: ApiKey $K" -H "X-ClientID: $C" -H "Content-Type: application/json" \
+            -d "$BODY" "$API/$P/submissions")
+          echo "HTTP $CODE"; [ "$CODE" = "202" ] || { echo "::error::Edge 送審被拒(HTTP $CODE)"; cat "$H"; exit 1; }
+          echo "operation=$(grep -i '^Location:' "$H" | tr -d '\r' | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Wait for publish acceptance
+        env: { P: "${{ steps.sec.outputs.p }}", C: "${{ steps.sec.outputs.c }}", K: "${{ steps.sec.outputs.k }}" }
+        run: |
+          OP="${{ steps.publish.outputs.operation }}"; [ -n "$OP" ] || exit 0
+          for i in $(seq 1 20); do
+            S=$(curl -sS -H "Authorization: ApiKey $K" -H "X-ClientID: $C" "$API/$P/submissions/operations/$OP"); echo "$S"
+            echo "$S" | grep -qi '"status"[[:space:]]*:[[:space:]]*"Succeeded"' && { echo "✅ Edge 已送審 v${{ needs.prepare.outputs.version }}"; exit 0; }
+            echo "$S" | grep -qi '"status"[[:space:]]*:[[:space:]]*"Failed"' && { echo "::error::Edge publish failed"; exit 1; }
+            sleep 15
+          done; echo "still in progress — check Partner Center"
+
+  chrome:
+    needs: prepare
+    if: needs.prepare.outputs.has_cws == 'true' && needs.prepare.outputs.stores != 'edge'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { ref: release, path: rel }
+      - name: Upload and submit for review (Chrome Web Store API V2)
+        env:
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        run: bash scripts/cws-publish.sh "${{ needs.prepare.outputs.zip }}"
